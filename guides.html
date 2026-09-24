@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="cache-control" content="no-cache, must-revalidate">
 <meta http-equiv="pragma" content="no-cache">
-<title>Playbook</title>
+<title>Book</title>
 <link rel="stylesheet" href="styles.css?v=57">
 <script src="theme.js?v=1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +18,7 @@
 <!-- Sign in -->
 <div class="gate" id="gate" hidden>
   <form class="gate-box" id="auth-form">
-    <h1>Playbook</h1>
+    <h1>Book</h1>
     <p class="gate-sub" id="auth-sub">Sign in to your notes</p>
     <label class="gate-label" for="auth-email">Email</label>
     <input type="email" id="auth-email" autocomplete="email" required>
@@ -37,7 +37,7 @@
   <div class="topbar">
     <nav class="tabs">
       <a href="index.html" class="tab">Tasks</a>
-      <a href="guides.html" class="tab is-active" aria-current="page">Playbook</a>
+      <a href="guides.html" class="tab is-active" aria-current="page">Book</a>
       <a href="projects.html" class="tab">Projects</a>
       <a href="processes.html" class="tab">Processes</a>
       <a href="documents.html" class="tab">Docs &amp; Notes</a>
@@ -51,7 +51,7 @@
     </div>
   </div>
   <div class="page-line">
-    <h1>Playbook</h1>
+    <h1>Book</h1>
   </div>
 </header>
 
@@ -179,7 +179,7 @@ const SUPABASE_URL      = "https://hfmlmhegypwlntvdguup.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
 
 const MAX_UPLOAD_MB = 50;
-const BUILD  = "2026-09-23b";
+const BUILD  = "2026-09-23c";
 const BUCKET = "task-files";
 const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
 const CLAMP_LINES = 3;            // lines of a note shown before Read more
@@ -432,7 +432,7 @@ async function loadGuides() {
     if (error.code === "PGRST205" || /could not find the table|does not exist/i.test(error.message)) {
       const b = $("mode-banner");
       b.hidden = false;
-      b.textContent = "The playbook tables do not exist yet — run supabase-guides.sql in the Supabase SQL Editor, then reload.";
+      b.textContent = "The Book tables do not exist yet — run supabase-guides.sql in the Supabase SQL Editor, then reload.";
       guides = [];
       return;
     }
