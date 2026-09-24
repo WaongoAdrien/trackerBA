@@ -112,6 +112,11 @@
   </section>
 
   <section class="group">
+    <div class="group-head"><h2>In testing <span class="count" id="testing-count">0</span></h2></div>
+    <ul class="rows" id="testing-list"></ul>
+  </section>
+
+  <section class="group">
     <div class="group-head">
       <button type="button" class="group-toggle" id="completed-toggle" aria-expanded="false">
         <span class="caret" id="completed-caret">▸</span>
@@ -222,7 +227,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
 // Match this to the limit set in Supabase > Storage > Settings.
 const MAX_UPLOAD_MB = 50;
 
-const BUILD = "2026-09-23c";   // shown in the footer; quote this when reporting a problem
+const BUILD = "2026-09-24a";   // shown in the footer; quote this when reporting a problem
 const BUCKET = "task-files";
 
 // Supabase's resumable endpoint requires exactly 6MB chunks. Anything at or
@@ -237,15 +242,15 @@ const ARCHIVE_PAGE_SIZE = 50;
 const STORAGE_KEY = "adrienTaskTracker";
 const LAST_BACKUP_KEY = "adrienTaskTrackerLastBackup";
 const UI_KEY = "adrienTaskTrackerUI";
-const TYPES = ["active", "initiated", "completed"];
+const TYPES = ["active", "initiated", "testing", "completed"];
 const CATEGORIES = ["CRM", "CR", "Query", "Migration", "Project", "Issue", "Task", "By Karen", "Other"];
-const GROUP_LABELS = { active: "Backlog", initiated: "In progress", completed: "Completed" };
+const GROUP_LABELS = { active: "Backlog", initiated: "In progress", testing: "In testing", completed: "Completed" };
 
 let sb = null;                 // Supabase client, when configured
 let mode = "local";            // "local" | "cloud"
 let currentUser = null;
 
-let taskData = { active: [], initiated: [], completed: [] };
+let taskData = { active: [], initiated: [], testing: [], completed: [] };
 let filters = { search: "", category: "all", priority: "all" };
 let sortBy = "due";
 let showCompleted = false;
@@ -506,12 +511,13 @@ const cloudStore = {
     // Open work is always loaded in full; the archive is paged.
     const { data: open, error: openError } = await sb
       .from("tasks").select("*")
-      .in("status", ["active", "initiated"])
+      .in("status", ["active", "initiated", "testing"])
       .order("created_at", { ascending: false });
     if (openError) throw openError;
 
     taskData.active = open.filter((r) => r.status === "active").map(fromRow);
     taskData.initiated = open.filter((r) => r.status === "initiated").map(fromRow);
+    taskData.testing = open.filter((r) => r.status === "testing").map(fromRow);
 
     archiveLoaded = 0;
     archiveTotal = 0;
@@ -728,14 +734,29 @@ async function addTask(fields) {
 async function moveTask(id, toType) {
   const found = findTask(id);
   if (!found || found.type === toType) return false;
-  taskData[found.type].splice(found.index, 1);
+  const from = found.type;
+  const wasUpdated = found.task.lastUpdated;
+
+  taskData[from].splice(found.index, 1);
   found.task.type = toType;
   touch(found.task);
   taskData[toType].unshift(found.task);
   if (toType === "completed") archiveTotal += 1;
-  if (found.type === "completed") archiveTotal = Math.max(0, archiveTotal - 1);
+  if (from === "completed") archiveTotal = Math.max(0, archiveTotal - 1);
   render();
-  await persist(() => store.update(found.task), "Status change could not be saved.");
+
+  // A rejected move must not leave the card sitting in a group the database
+  // never accepted - it would silently snap back on the next reload.
+  if (!await persist(() => store.update(found.task), "Status change could not be saved.")) {
+    taskData[toType] = getTasks(toType).filter((t) => t.id !== id);
+    found.task.type = from;
+    found.task.lastUpdated = wasUpdated;
+    taskData[from].splice(found.index, 0, found.task);
+    if (toType === "completed") archiveTotal = Math.max(0, archiveTotal - 1);
+    if (from === "completed") archiveTotal += 1;
+    render();
+    return false;
+  }
   return true;
 }
 
@@ -805,7 +826,8 @@ function buildRow(task, type) {
   if (type === "completed") li.classList.add("is-done");
 
   const primary = type === "active" ? { label: "Start", action: "start" }
-    : type === "initiated" ? { label: "Done", action: "complete" }
+    : type === "initiated" ? { label: "To testing", action: "test" }
+    : type === "testing" ? { label: "Done", action: "complete" }
     : { label: "Reopen", action: "reopen" };
 
   const fileCount = (task.attachments || []).length;
@@ -855,7 +877,10 @@ function buildMenu(task, type) {
     { action: "notes", label: task.notes ? "Edit notes" : "Add notes" },
     { action: "files", label: (task.attachments || []).length ? "Documents" : "Attach documents" }
   ];
+  if (type === "initiated") items.push({ action: "test", label: "Move to testing" });
   if (type === "initiated") items.push({ action: "backlog", label: "Move to backlog" });
+  if (type === "testing") items.push({ action: "complete", label: "Mark done" });
+  if (type === "testing") items.push({ action: "start", label: "Back to in progress" });
   if (type === "completed") items.push({ action: "reopen", label: "Reopen" });
   items.push({ action: "delete", label: "Delete", danger: true });
 
@@ -906,7 +931,8 @@ function renderGroup(type) {
     empty.className = "empty";
     empty.textContent = all.length ? `${all.length} hidden by filters`
       : type === "active" ? "Nothing in the backlog."
-      : type === "initiated" ? "Nothing in progress." : "Nothing completed yet.";
+      : type === "initiated" ? "Nothing in progress."
+      : type === "testing" ? "Nothing in testing." : "Nothing completed yet.";
     list.appendChild(empty);
   } else {
     visible.forEach((task) => {
@@ -923,13 +949,14 @@ function renderGroup(type) {
 }
 
 function renderSummary() {
-  const open = [...getTasks("active"), ...getTasks("initiated")];
+  const open = [...getTasks("active"), ...getTasks("initiated"), ...getTasks("testing")];
   const overdue = open.filter((t) => { const d = daysUntil(t.dueDate); return d !== null && d < 0; }).length;
   const today = open.filter((t) => daysUntil(t.dueDate) === 0).length;
   const doneCount = mode === "cloud" ? archiveTotal : getTasks("completed").length;
 
   const bits = [`<span class="pill">${open.length} open</span>`];
   if (getTasks("initiated").length) bits.push(`<span class="pill">${getTasks("initiated").length} in progress</span>`);
+  if (getTasks("testing").length) bits.push(`<span class="pill">${getTasks("testing").length} in testing</span>`);
   if (today) bits.push(`<span class="pill pill-today">${today} due today</span>`);
   if (overdue) bits.push(`<span class="pill pill-overdue">${overdue} overdue</span>`);
   bits.push(`<span class="pill pill-muted">${doneCount} done</span>`);
@@ -1013,7 +1040,11 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "start":    closeMenu(); await moveTask(id, "initiated"); break;
-    case "complete": closeMenu(); await moveTask(id, "completed"); toast("Marked done.", { tone: "success" }); break;
+    case "test":     closeMenu(); await moveTask(id, "testing"); break;
+    case "complete":
+      closeMenu();
+      if (await moveTask(id, "completed")) toast("Marked done.", { tone: "success" });
+      break;
     case "reopen":
     case "backlog":  closeMenu(); await moveTask(id, "active"); break;
     case "edit":
@@ -1603,17 +1634,22 @@ function restoreBackup(text) {
   catch (error) { return toast("That file is not a readable backup.", { tone: "error" }); }
 
   const incoming = parsed && parsed.tasks ? parsed.tasks : parsed;
-  if (!incoming || !TYPES.every((k) => Array.isArray(incoming[k])))
+  // Backups taken before the testing stage existed have no "testing" key,
+  // so only the original three decide whether this is a tracker backup.
+  if (!incoming || !["active", "initiated", "completed"].every((k) => Array.isArray(incoming[k])))
     return toast("That file is not a task tracker backup.", { tone: "error" });
 
-  const incomingCount = TYPES.reduce((n, k) => n + incoming[k].length, 0);
+  const group = (k) => (Array.isArray(incoming[k]) ? incoming[k] : []);
+
+  const incomingCount = TYPES.reduce((n, k) => n + group(k).length, 0);
   const currentCount = mode === "cloud"
-    ? getTasks("active").length + getTasks("initiated").length + archiveTotal
+    ? getTasks("active").length + getTasks("initiated").length
+      + getTasks("testing").length + archiveTotal
     : allTasks().length;
 
   const apply = async () => {
     TYPES.forEach((type) => {
-      taskData[type] = incoming[type].map((t) => normalize({
+      taskData[type] = group(type).map((t) => normalize({
         ...t,
         id: mode === "cloud" ? uuid() : t.id
       }, type));

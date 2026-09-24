@@ -13,7 +13,7 @@ create table if not exists public.tasks (
   user_id      uuid not null references auth.users(id) on delete cascade,
   text         text not null,
   status       text not null default 'active'
-                 check (status in ('active', 'initiated', 'completed')),
+                 check (status in ('active', 'initiated', 'testing', 'completed')),
   category     text not null default 'CRM',
   priority     text not null default 'medium'
                  check (priority in ('high', 'medium', 'low')),
