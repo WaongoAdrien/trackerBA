@@ -1,0 +1,1808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="pragma" content="no-cache">
+<title>Task Tracker</title>
+<!-- The ?v= number busts the browser cache. Bump it whenever styles.css changes. -->
+<link rel="stylesheet" href="styles.css?v=57">
+<script src="theme.js?v=1"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
+</head>
+<body>
+
+<!-- Sign in -->
+<div class="gate" id="gate" hidden>
+  <form class="gate-box" id="auth-form">
+    <h1>Task Tracker</h1>
+    <p class="gate-sub" id="auth-sub">Sign in to your tasks</p>
+
+    <label class="gate-label" for="auth-email">Email</label>
+    <input type="email" id="auth-email" autocomplete="email" required>
+
+    <label class="gate-label" for="auth-password">Password</label>
+    <input type="password" id="auth-password" autocomplete="current-password" required minlength="6">
+
+    <p class="gate-error" id="auth-error" hidden></p>
+
+    <button type="submit" class="btn-primary gate-submit" id="auth-submit">Sign in</button>
+
+    <div class="gate-links">
+      <button type="button" class="link-btn" id="auth-toggle">Create one</button>
+      <button type="button" class="link-btn" id="auth-reset">Forgot password?</button>
+    </div>
+  </form>
+</div>
+
+<header class="app-header" id="app-header" hidden>
+  <div class="topbar">
+    <nav class="tabs">
+      <a href="index.html" class="tab is-active" aria-current="page">Tasks</a>
+      <a href="guides.html" class="tab">Playbook</a>
+      <a href="projects.html" class="tab">Projects</a>
+      <a href="processes.html" class="tab">Processes</a>
+      <a href="documents.html" class="tab">Docs &amp; Notes</a>
+    </nav>
+    <div class="topbar-right">
+      <button type="button" class="theme-toggle" data-theme-toggle>&#9728; Light</button>
+      <div class="account" id="account" hidden>
+        <span class="account-email" id="account-email"></span>
+        <button type="button" class="btn-ghost small" id="sign-out">Sign out</button>
+      </div>
+    </div>
+  </div>
+  <div class="page-line">
+    <h1>Task Tracker</h1>
+      <div class="summary" id="summary"></div>
+  </div>
+</header>
+
+<main class="app" id="app" hidden>
+
+  <div class="mode-banner" id="mode-banner" hidden></div>
+
+  <form class="quick-add" id="task-form" autocomplete="off">
+    <input type="text" id="task-input" placeholder="Add a task and press Enter" required>
+    <select id="category-input" aria-label="Category"></select>
+    <select id="priority-input" aria-label="Priority">
+      <option value="high">High</option>
+      <option value="medium" selected>Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <input type="date" id="due-date-input" aria-label="Due date">
+    <button type="submit" class="btn-primary">Add</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input type="search" id="search-input" placeholder="Search tasks and notes">
+    </div>
+    <select id="filter-category" aria-label="Filter by category"></select>
+    <select id="filter-priority" aria-label="Filter by priority">
+      <option value="all">All priorities</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <select id="sort-by" aria-label="Sort by">
+      <option value="due">Sort: Due date</option>
+      <option value="priority">Sort: Priority</option>
+      <option value="newest">Sort: Date created (newest)</option>
+      <option value="oldest">Sort: Date created (oldest)</option>
+      <option value="alpha">Sort: A–Z</option>
+    </select>
+    <button type="button" class="btn-ghost" id="reset-filters" hidden>Clear</button>
+  </div>
+
+  <section class="group">
+    <div class="group-head"><h2>Backlog <span class="count" id="active-count">0</span></h2></div>
+    <ul class="rows" id="task-list"></ul>
+  </section>
+
+  <section class="group">
+    <div class="group-head"><h2>In progress <span class="count" id="initiated-count">0</span></h2></div>
+    <ul class="rows" id="initiated-list"></ul>
+  </section>
+
+  <section class="group">
+    <div class="group-head">
+      <button type="button" class="group-toggle" id="completed-toggle" aria-expanded="false">
+        <span class="caret" id="completed-caret">▸</span>
+        <h2>Completed <span class="count" id="completed-count">0</span></h2>
+      </button>
+      <div class="group-actions">
+        <button type="button" class="btn-ghost" id="export-completed-pdf">Save PDF</button>
+        <button type="button" class="btn-ghost danger" id="clear-completed">Clear</button>
+      </div>
+    </div>
+    <ul class="rows" id="completed-list" hidden></ul>
+    <button type="button" class="load-more" id="load-more" hidden>Load older completed tasks</button>
+  </section>
+
+  <footer class="backup-bar">
+    <span class="backup-status" id="backup-status"></span>
+    <span class="build-stamp" id="build-stamp"></span>
+    <div class="backup-buttons">
+      <button type="button" class="btn-ghost" id="backup-save">Download backup</button>
+      <button type="button" class="btn-ghost" id="backup-restore">Restore</button>
+      <input type="file" id="backup-file" accept="application/json,.json" hidden>
+    </div>
+  </footer>
+
+</main>
+
+<!-- Notes -->
+<div class="modal" id="notes-modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="notes-title">Notes</h3>
+      <button type="button" class="icon-btn" data-close="notes-modal" aria-label="Close">✕</button>
+    </div>
+    <div class="format-bar">
+      <button type="button" class="fmt" data-fmt="bold" title="Bold (Cmd+B)"><b>B</b></button>
+      <button type="button" class="fmt" data-fmt="italic" title="Italic (Cmd+I)"><i>I</i></button>
+      <span class="fmt-sep"></span>
+      <button type="button" class="swatch blue" data-color="blue" title="Blue"></button>
+      <button type="button" class="swatch red" data-color="red" title="Red"></button>
+      <button type="button" class="swatch yellow" data-color="yellow" title="Yellow"></button>
+      <button type="button" class="swatch green" data-color="green" title="Green"></button>
+      <span class="fmt-sep"></span>
+      <button type="button" class="fmt" data-fmt="clear">Clear</button>
+    </div>
+    <textarea id="notes-textarea" placeholder="Decisions, context, next steps…"></textarea>
+    <div class="modal-foot">
+      <button type="button" class="btn-ghost" data-close="notes-modal">Cancel</button>
+      <button type="button" class="btn-primary" id="save-notes">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Attachments -->
+<div class="modal" id="files-modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="files-title">Documents</h3>
+      <button type="button" class="icon-btn" data-close="files-modal" aria-label="Close">✕</button>
+    </div>
+
+    <div class="dropzone" id="dropzone">
+      <p class="dropzone-text">Drag files here, or <button type="button" class="link-btn" id="pick-file">choose files</button></p>
+      <p class="dropzone-hint" id="dropzone-hint"></p>
+      <input type="file" id="file-input" multiple hidden>
+    </div>
+
+    <ul class="file-list" id="file-list"></ul>
+
+    <div class="modal-foot">
+      <button type="button" class="btn-primary" data-close="files-modal">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm -->
+<div class="modal" id="confirm-modal" hidden>
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <button type="button" class="icon-btn" data-close="confirm-modal" aria-label="Close">✕</button>
+    </div>
+    <p class="modal-text" id="confirm-text"></p>
+    <div class="modal-foot">
+      <button type="button" class="btn-ghost" data-close="confirm-modal">Cancel</button>
+      <button type="button" class="btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ==================================================================
+   CONFIGURATION
+
+   Paste your Supabase project URL and anon (public) key here.
+   Project Settings > API in the Supabase dashboard.
+
+   Leave both blank to keep running locally in this browser.
+   See SETUP.md for the full walkthrough.
+
+   NEVER paste the service_role key here - it bypasses all security.
+================================================================== */
+const SUPABASE_URL      = "https://hfmlmhegypwlntvdguup.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
+
+// Warn before an upload that the server will reject anyway.
+// Match this to the limit set in Supabase > Storage > Settings.
+const MAX_UPLOAD_MB = 50;
+
+const BUILD = "2026-09-23b";   // shown in the footer; quote this when reporting a problem
+const BUCKET = "task-files";
+
+// Supabase's resumable endpoint requires exactly 6MB chunks. Anything at or
+// above this goes up in chunks that survive a dropped connection; smaller
+// files use the simpler one-shot upload.
+const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
+const ARCHIVE_PAGE_SIZE = 50;
+
+/* ==================================================================
+   Constants and state
+================================================================== */
+const STORAGE_KEY = "adrienTaskTracker";
+const LAST_BACKUP_KEY = "adrienTaskTrackerLastBackup";
+const UI_KEY = "adrienTaskTrackerUI";
+const TYPES = ["active", "initiated", "completed"];
+const CATEGORIES = ["CRM", "CR", "Query", "Migration", "Project", "Issue", "Task", "By Karen", "Other"];
+const GROUP_LABELS = { active: "Backlog", initiated: "In progress", completed: "Completed" };
+
+let sb = null;                 // Supabase client, when configured
+let mode = "local";            // "local" | "cloud"
+let currentUser = null;
+
+let taskData = { active: [], initiated: [], completed: [] };
+let filters = { search: "", category: "all", priority: "all" };
+let sortBy = "due";
+let showCompleted = false;
+
+let archiveLoaded = 0;         // completed rows fetched so far (cloud)
+let archiveTotal = 0;
+
+let expandedNotes = new Set();   // task ids showing their full note
+let openMenuId = null;
+let editingId = null;
+let notesTarget = null;
+let filesTarget = null;
+let confirmAction = null;
+let pendingUndo = null;        // { commit, timer }
+
+const $ = (id) => document.getElementById(id);
+
+/* ==================================================================
+   Utilities
+================================================================== */
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function generateId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
+}
+
+function uuid() {
+  return (crypto.randomUUID && crypto.randomUUID()) ||
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+function stamp(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit"
+  }).format(date);
+}
+
+// Compact stamp in the form Mon-09-Jan-26
+function formatStamp(value) {
+  const d = typeof value === "number" ? new Date(value) : new Date(value);
+  if (isNaN(d)) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short", day: "2-digit", month: "short", year: "2-digit"
+  }).formatToParts(d);
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+  return `${get("weekday")}-${get("day")}-${get("month")}-${get("year")}`;
+}
+
+function todayISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function parseDue(dateString) {
+  if (!dateString) return null;
+  const [y, m, d] = String(dateString).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function daysUntil(dateString) {
+  const due = parseDue(dateString);
+  if (!due) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((due - today) / 86400000);
+}
+
+function dueLabel(dateString) {
+  const d = daysUntil(dateString);
+  if (d === null) return null;
+  const text = formatStamp(parseDue(dateString).getTime());
+  let level = "later", hint;
+  if (d < 0) { level = "overdue"; hint = `${Math.abs(d)} ${Math.abs(d) === 1 ? "day" : "days"} overdue`; }
+  else if (d === 0) { level = "today"; hint = "Due today"; }
+  else if (d === 1) { level = "soon"; hint = "Due tomorrow"; }
+  else if (d <= 6) { level = "soon"; hint = `Due in ${d} days`; }
+  else { hint = `Due in ${d} days`; }
+  return { text, level, hint };
+}
+
+function fileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1048576).toFixed(1)} MB`;
+  return `${(n / 1073741824).toFixed(2)} GB`;
+}
+
+/* ==================================================================
+   Toasts and modals
+================================================================== */
+function toast(message, options = {}) {
+  const el = document.createElement("div");
+  el.className = "toast" + (options.tone ? ` toast-${options.tone}` : "");
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(text);
+
+  if (options.actionLabel && options.onAction) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "toast-action";
+    btn.textContent = options.actionLabel;
+    btn.addEventListener("click", () => { options.onAction(); el.remove(); });
+    el.appendChild(btn);
+  }
+
+  $("toasts").appendChild(el);
+  setTimeout(() => {
+    el.classList.add("out");
+    setTimeout(() => el.remove(), 250);
+  }, options.duration || 4000);
+  return el;
+}
+
+function openModal(id) { $(id).hidden = false; document.body.classList.add("modal-open"); }
+
+function closeModal(id) {
+  $(id).hidden = true;
+  document.body.classList.remove("modal-open");
+  if (id === "notes-modal") notesTarget = null;
+  if (id === "files-modal") filesTarget = null;
+  if (id === "confirm-modal") confirmAction = null;
+}
+
+function askConfirm(title, text, onConfirm, confirmLabel = "Confirm") {
+  $("confirm-title").textContent = title;
+  $("confirm-text").textContent = text;
+  $("confirm-ok").textContent = confirmLabel;
+  confirmAction = onConfirm;
+  openModal("confirm-modal");
+}
+
+document.querySelectorAll("[data-close]").forEach((el) => {
+  el.addEventListener("click", () => closeModal(el.dataset.close));
+});
+
+document.querySelectorAll(".modal").forEach((m) => {
+  m.addEventListener("click", (e) => { if (e.target === m) closeModal(m.id); });
+});
+
+$("confirm-ok").addEventListener("click", () => {
+  const action = confirmAction;
+  closeModal("confirm-modal");
+  if (action) action();
+});
+
+/* ==================================================================
+   Task shape
+================================================================== */
+function normalize(task, type) {
+  const createdTs = typeof task.createdTs === "number"
+    ? task.createdTs
+    : (parseInt(String(task.id).slice(0, 13), 10) || Date.parse(task.created) || Date.now());
+
+  return {
+    id: task.id || generateId(),
+    text: String(task.text || "").trim(),
+    priority: ["high", "medium", "low"].includes(task.priority) ? task.priority : "medium",
+    category: task.category || CATEGORIES[0],
+    dueDate: task.dueDate || null,
+    notes: task.notes || "",
+    createdTs: createdTs,
+    created: task.created || stamp(new Date(createdTs)),
+    lastUpdated: task.lastUpdated || task.created || stamp(new Date(createdTs)),
+    attachments: Array.isArray(task.attachments) ? task.attachments : [],
+    type: type
+  };
+}
+
+// Database row -> in-memory task
+function fromRow(row) {
+  const createdTs = Date.parse(row.created_at) || Date.now();
+  return {
+    id: row.id,
+    text: row.text,
+    priority: row.priority,
+    category: row.category,
+    dueDate: row.due_date,
+    notes: row.notes || "",
+    createdTs: createdTs,
+    created: stamp(new Date(createdTs)),
+    lastUpdated: stamp(new Date(Date.parse(row.updated_at) || createdTs)),
+    attachments: [],
+    type: row.status
+  };
+}
+
+// In-memory task -> database row
+function toRow(task) {
+  return {
+    id: task.id,
+    user_id: currentUser.id,
+    text: task.text,
+    status: task.type,
+    category: task.category,
+    priority: task.priority,
+    due_date: task.dueDate,
+    notes: task.notes
+  };
+}
+
+/* ==================================================================
+   Storage: two implementations behind one interface
+================================================================== */
+const localStore = {
+  kind: "local",
+  supportsFiles: false,
+
+  async loadAll() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      TYPES.forEach((type) => {
+        taskData[type] = (Array.isArray(parsed[type]) ? parsed[type] : []).map((t) => normalize(t, type));
+      });
+    } catch (error) {
+      console.warn("Could not read saved tasks:", error);
+      toast("Saved tasks could not be read.", { tone: "error" });
+    }
+  },
+
+  persist() {
+    try {
+      const plain = {};
+      TYPES.forEach((t) => { plain[t] = taskData[t]; });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(plain));
+    } catch (error) {
+      console.warn("Could not save tasks:", error);
+      toast("Changes could not be saved to this browser.", { tone: "error" });
+    }
+  },
+
+  async create(task) { this.persist(); },
+  async update(task) { this.persist(); },
+  async remove(ids) { this.persist(); },
+  async reinsert(tasks) { this.persist(); },
+  async replaceAll() { this.persist(); },
+  async loadMoreArchive() {}
+};
+
+const cloudStore = {
+  kind: "cloud",
+  supportsFiles: true,
+
+  async loadAll() {
+    // Open work is always loaded in full; the archive is paged.
+    const { data: open, error: openError } = await sb
+      .from("tasks").select("*")
+      .in("status", ["active", "initiated"])
+      .order("created_at", { ascending: false });
+    if (openError) throw openError;
+
+    taskData.active = open.filter((r) => r.status === "active").map(fromRow);
+    taskData.initiated = open.filter((r) => r.status === "initiated").map(fromRow);
+
+    archiveLoaded = 0;
+    archiveTotal = 0;
+    taskData.completed = [];
+    await this.fetchArchive(true);
+    await this.attachFiles();
+  },
+
+  async fetchArchive(reset) {
+    let query = sb.from("tasks").select("*", { count: "exact" }).eq("status", "completed");
+
+    // With the archive kept forever, search has to reach rows not yet loaded
+    const term = filters.search.trim();
+    if (term) query = query.or(`text.ilike.%${term}%,notes.ilike.%${term}%,category.ilike.%${term}%`);
+
+    const from = reset ? 0 : archiveLoaded;
+    const { data, error, count } = await query
+      .order("completed_at", { ascending: false, nullsFirst: false })
+      .range(from, from + ARCHIVE_PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const rows = data.map(fromRow);
+    taskData.completed = reset ? rows : taskData.completed.concat(rows);
+    archiveLoaded = taskData.completed.length;
+    archiveTotal = count == null ? archiveLoaded : count;
+  },
+
+  async attachFiles() {
+    const ids = TYPES.flatMap((t) => taskData[t]).map((t) => t.id);
+    if (!ids.length) return;
+    const { data, error } = await sb.from("attachments").select("*").in("task_id", ids);
+    if (error) { console.warn(error); return; }
+
+    const byTask = {};
+    data.forEach((a) => { (byTask[a.task_id] = byTask[a.task_id] || []).push(a); });
+    TYPES.forEach((t) => taskData[t].forEach((task) => { task.attachments = byTask[task.id] || []; }));
+  },
+
+  async create(task) {
+    const { error } = await sb.from("tasks").insert(toRow(task));
+    if (error) throw error;
+  },
+
+  async update(task) {
+    const { error } = await sb.from("tasks").update(toRow(task)).eq("id", task.id);
+    if (error) throw error;
+  },
+
+  async remove(ids) {
+    // Storage objects are not cascade-deleted with the row, so clear them first
+    const paths = TYPES.flatMap((t) => taskData[t])
+      .filter((t) => ids.includes(t.id))
+      .flatMap((t) => (t.attachments || []).map((a) => a.file_path));
+    if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+
+    const { error } = await sb.from("tasks").delete().in("id", ids);
+    if (error) throw error;
+  },
+
+  async reinsert(tasks) {
+    const { error } = await sb.from("tasks").insert(tasks.map(toRow));
+    if (error) throw error;
+  },
+
+  async replaceAll(incoming) {
+    const { error: delError } = await sb.from("tasks").delete().eq("user_id", currentUser.id);
+    if (delError) throw delError;
+    const rows = incoming.map(toRow);
+    if (rows.length) {
+      const { error } = await sb.from("tasks").insert(rows);
+      if (error) throw error;
+    }
+  },
+
+  async loadMoreArchive() { await this.fetchArchive(false); },
+
+  /* ---- files ---- */
+
+  // Chunked, resumable upload. A dropped connection resumes rather than restarting.
+  async uploadResumable(path, file, onProgress) {
+    if (!window.tus) throw new Error("Resumable upload library did not load.");
+    const { data } = await sb.auth.getSession();
+    const token = data.session && data.session.access_token;
+    if (!token) throw new Error("Session expired. Sign in again.");
+
+    await new Promise((resolve, reject) => {
+      const upload = new window.tus.Upload(file, {
+        endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+        retryDelays: [0, 1000, 3000, 5000, 10000],
+        headers: { authorization: `Bearer ${token}`, "x-upsert": "false" },
+        uploadDataDuringCreation: true,
+        removeFingerprintOnSuccess: true,
+        chunkSize: RESUMABLE_THRESHOLD,     // Supabase requires exactly 6MB
+        metadata: {
+          bucketName: BUCKET,
+          objectName: path,
+          contentType: file.type || "application/octet-stream",
+          cacheControl: "3600"
+        },
+        onError: reject,
+        onProgress: (sent, total) => onProgress && onProgress(sent / total),
+        onSuccess: resolve
+      });
+
+      // Resume a previous attempt at this file if one was interrupted
+      upload.findPreviousUploads().then((previous) => {
+        if (previous.length) upload.resumeFromPreviousUpload(previous[0]);
+        upload.start();
+      }).catch(() => upload.start());
+    });
+  },
+
+  async upload(task, file, onProgress) {
+    const path = `${currentUser.id}/${task.id}/${uuid()}-${file.name}`;
+
+    if (file.size >= RESUMABLE_THRESHOLD) {
+      await this.uploadResumable(path, file, onProgress);
+    } else {
+      if (onProgress) onProgress(0);
+      const { error: upError } = await sb.storage.from(BUCKET)
+        .upload(path, file, { contentType: file.type || "application/octet-stream", upsert: false });
+      if (upError) throw upError;
+      if (onProgress) onProgress(1);
+    }
+
+    const row = {
+      task_id: task.id,
+      user_id: currentUser.id,
+      file_name: file.name,
+      file_path: path,
+      file_size: file.size,
+      mime_type: file.type || null
+    };
+    const { data, error } = await sb.from("attachments").insert(row).select().single();
+    if (error) {
+      await sb.storage.from(BUCKET).remove([path]); // do not leave an orphan file
+      throw error;
+    }
+    return data;
+  },
+
+  async deleteFile(att) {
+    const { error: sError } = await sb.storage.from(BUCKET).remove([att.file_path]);
+    if (sError) throw sError;
+    const { error } = await sb.from("attachments").delete().eq("id", att.id);
+    if (error) throw error;
+  },
+
+  async fileUrl(att, forDownload) {
+    const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(
+      att.file_path, 60, forDownload ? { download: att.file_name } : undefined);
+    if (error) throw error;
+    return data.signedUrl;
+  }
+};
+
+let store = localStore;
+
+async function persist(fn, failMessage) {
+  try {
+    await fn();
+    return true;
+  } catch (error) {
+    console.warn(error);
+    toast(failMessage || (error.message || "That change could not be saved."), { tone: "error" });
+    return false;
+  }
+}
+
+function saveUI() {
+  try { localStorage.setItem(UI_KEY, JSON.stringify({ showCompleted, sortBy })); } catch (e) {}
+}
+
+function loadUI() {
+  try {
+    const ui = JSON.parse(localStorage.getItem(UI_KEY) || "{}");
+    if (typeof ui.showCompleted === "boolean") showCompleted = ui.showCompleted;
+    if (typeof ui.sortBy === "string") sortBy = ui.sortBy;
+  } catch (e) {}
+}
+
+/* ==================================================================
+   Task operations
+================================================================== */
+const getTasks = (type) => taskData[type] || [];
+const allTasks = () => TYPES.flatMap(getTasks);
+
+function findTask(id) {
+  for (const type of TYPES) {
+    const index = getTasks(type).findIndex((t) => t.id === id);
+    if (index !== -1) return { task: taskData[type][index], type, index };
+  }
+  return null;
+}
+
+function touch(task) { task.lastUpdated = stamp(new Date()); }
+
+async function addTask(fields) {
+  const now = Date.now();
+  const task = normalize({
+    ...fields,
+    id: mode === "cloud" ? uuid() : generateId(),
+    createdTs: now,
+    created: stamp(new Date(now)),
+    lastUpdated: stamp(new Date(now))
+  }, "active");
+
+  taskData.active.unshift(task);
+  render();
+  await persist(() => store.create(task), "Task could not be saved.");
+  return task;
+}
+
+async function moveTask(id, toType) {
+  const found = findTask(id);
+  if (!found || found.type === toType) return false;
+  taskData[found.type].splice(found.index, 1);
+  found.task.type = toType;
+  touch(found.task);
+  taskData[toType].unshift(found.task);
+  if (toType === "completed") archiveTotal += 1;
+  if (found.type === "completed") archiveTotal = Math.max(0, archiveTotal - 1);
+  render();
+  await persist(() => store.update(found.task), "Status change could not be saved.");
+  return true;
+}
+
+/* ==================================================================
+   Filtering and sorting
+================================================================== */
+function matches(task) {
+  if (filters.category !== "all" && task.category !== filters.category) return false;
+  if (filters.priority !== "all" && task.priority !== filters.priority) return false;
+  const term = filters.search.trim().toLowerCase();
+  if (term) {
+    const hay = [task.text, task.notes, task.category].join(" ").toLowerCase();
+    if (!hay.includes(term)) return false;
+  }
+  return true;
+}
+
+function sorted(tasks) {
+  const rank = { high: 3, medium: 2, low: 1 };
+  return tasks.slice().sort((a, b) => {
+    switch (sortBy) {
+      case "due": {
+        if (!a.dueDate && !b.dueDate) return b.createdTs - a.createdTs;
+        if (!a.dueDate) return 1;
+        if (!b.dueDate) return -1;
+        return parseDue(a.dueDate) - parseDue(b.dueDate);
+      }
+      case "priority": return rank[b.priority] - rank[a.priority];
+      case "newest": return b.createdTs - a.createdTs;
+      case "oldest": return a.createdTs - b.createdTs;
+      case "alpha": return a.text.localeCompare(b.text);
+      default: return 0;
+    }
+  });
+}
+
+const filtersActive = () =>
+  filters.search !== "" || filters.category !== "all" || filters.priority !== "all";
+
+/* ==================================================================
+   Rendering
+================================================================== */
+function notesToHtml(notes) {
+  if (!notes) return "";
+  return escapeHtml(notes)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/\[blue\](.*?)\[\/blue\]/g, '<span class="c-blue">$1</span>')
+    .replace(/\[red\](.*?)\[\/red\]/g, '<span class="c-red">$1</span>')
+    .replace(/\[yellow\](.*?)\[\/yellow\]/g, '<span class="c-yellow">$1</span>')
+    .replace(/\[green\](.*?)\[\/green\]/g, '<span class="c-green">$1</span>');
+}
+
+function plainNotes(notes) {
+  return String(notes || "")
+    .replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1")
+    .replace(/\[(blue|red|yellow|green)\](.*?)\[\/\1\]/g, "$2");
+}
+
+function buildRow(task, type) {
+  const li = document.createElement("li");
+  li.className = `row pri-${task.priority}${task.notes ? " has-note" : ""}`;
+  li.dataset.id = task.id;
+
+  const due = type === "completed" ? null : dueLabel(task.dueDate);
+  if (due && due.level === "overdue") li.classList.add("is-overdue");
+  if (type === "completed") li.classList.add("is-done");
+
+  const primary = type === "active" ? { label: "Start", action: "start" }
+    : type === "initiated" ? { label: "Done", action: "complete" }
+    : { label: "Reopen", action: "reopen" };
+
+  const fileCount = (task.attachments || []).length;
+
+  // Stacked: the task name first, then what it is, then the note across the
+  // whole card. The note used to sit in a narrow column beside the dates and
+  // could only ever use part of the width.
+  li.innerHTML = `
+    <div class="row-top">
+      <span class="pri-dot" title="${escapeHtml(task.priority)} priority"></span>
+      <div class="row-title">${escapeHtml(task.text)}</div>
+      <div class="row-actions">
+        <button type="button" class="btn-row" data-action="${primary.action}">${primary.label}</button>
+        <button type="button" class="icon-btn more" data-action="menu" aria-label="More actions">⋯</button>
+      </div>
+    </div>
+
+    <div class="row-meta">
+      <span class="chip">${escapeHtml(task.category)}</span>
+      <span class="stamp" title="Created ${escapeHtml(task.created)}"><span class="date-label">Added</span>${escapeHtml(formatStamp(task.createdTs))}</span>
+      ${type === "completed"
+        ? `<span class="due due-done" title="Completed ${escapeHtml(task.lastUpdated)}"><span class="date-label">Done</span>${escapeHtml(formatStamp(task.lastUpdated))}</span>`
+        : due
+          ? `<span class="due due-${due.level}" title="${escapeHtml(due.hint)}"><span class="date-label">Due</span>${escapeHtml(due.text)}</span>`
+          : `<span class="due due-none"><span class="date-label">Due</span><span class="date-none">—</span></span>`}
+      ${fileCount ? `<button type="button" class="clip" data-action="files" title="${fileCount} document${fileCount === 1 ? "" : "s"}">📎 ${fileCount}</button>` : ""}
+    </div>
+
+    ${task.notes ? `
+      <div class="row-note${expandedNotes.has(task.id) ? " open" : ""}" data-note="${task.id}">${notesToHtml(task.notes)}</div>
+      <button type="button" class="row-note-more" data-action="more" hidden>${expandedNotes.has(task.id) ? "Show less" : "Read more"}</button>
+    ` : ""}
+  `;
+
+  if (openMenuId === task.id) {
+    li.classList.add("menu-open");
+    li.querySelector(".row-actions").appendChild(buildMenu(task, type));
+  }
+  return li;
+}
+
+function buildMenu(task, type) {
+  const menu = document.createElement("div");
+  menu.className = "menu";
+  const items = [
+    { action: "edit", label: "Edit" },
+    { action: "notes", label: task.notes ? "Edit notes" : "Add notes" },
+    { action: "files", label: (task.attachments || []).length ? "Documents" : "Attach documents" }
+  ];
+  if (type === "initiated") items.push({ action: "backlog", label: "Move to backlog" });
+  if (type === "completed") items.push({ action: "reopen", label: "Reopen" });
+  items.push({ action: "delete", label: "Delete", danger: true });
+
+  menu.innerHTML = items.map((i) =>
+    `<button type="button" class="menu-item${i.danger ? " danger" : ""}" data-action="${i.action}">${i.label}</button>`
+  ).join("");
+  return menu;
+}
+
+function buildEditor(task) {
+  const wrap = document.createElement("li");
+  wrap.className = "row row-editing";
+  wrap.dataset.id = task.id;
+  wrap.innerHTML = `
+    <form class="editor" data-id="${task.id}">
+      <input type="text" class="edit-title" value="">
+      <div class="editor-fields">
+        <select class="edit-category">${CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("")}</select>
+        <select class="edit-priority">
+          <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+        </select>
+        <input type="date" class="edit-due">
+        <button type="button" class="btn-ghost small edit-clear-due">No date</button>
+        <span class="editor-spacer"></span>
+        <button type="button" class="btn-ghost small edit-cancel">Cancel</button>
+        <button type="submit" class="btn-primary small">Save</button>
+      </div>
+    </form>
+  `;
+  const form = wrap.querySelector(".editor");
+  form.querySelector(".edit-title").value = task.text;
+  form.querySelector(".edit-category").value = task.category;
+  form.querySelector(".edit-priority").value = task.priority;
+  form.querySelector(".edit-due").value = task.dueDate || "";
+  return wrap;
+}
+
+function renderGroup(type) {
+  const list = $(`${type === "active" ? "task" : type}-list`);
+  const all = getTasks(type);
+  // The archive is already filtered by the server when searching
+  const visible = sorted(type === "completed" && mode === "cloud" && filters.search
+    ? all : all.filter(matches));
+
+  list.innerHTML = "";
+  if (!visible.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = all.length ? `${all.length} hidden by filters`
+      : type === "active" ? "Nothing in the backlog."
+      : type === "initiated" ? "Nothing in progress." : "Nothing completed yet.";
+    list.appendChild(empty);
+  } else {
+    visible.forEach((task) => {
+      list.appendChild(editingId === task.id ? buildEditor(task) : buildRow(task, type));
+    });
+  }
+
+  const countEl = $(`${type}-count`);
+  if (type === "completed" && mode === "cloud") {
+    countEl.textContent = archiveTotal > visible.length ? `${visible.length}/${archiveTotal}` : archiveTotal;
+  } else {
+    countEl.textContent = visible.length === all.length ? all.length : `${visible.length}/${all.length}`;
+  }
+}
+
+function renderSummary() {
+  const open = [...getTasks("active"), ...getTasks("initiated")];
+  const overdue = open.filter((t) => { const d = daysUntil(t.dueDate); return d !== null && d < 0; }).length;
+  const today = open.filter((t) => daysUntil(t.dueDate) === 0).length;
+  const doneCount = mode === "cloud" ? archiveTotal : getTasks("completed").length;
+
+  const bits = [`<span class="pill">${open.length} open</span>`];
+  if (getTasks("initiated").length) bits.push(`<span class="pill">${getTasks("initiated").length} in progress</span>`);
+  if (today) bits.push(`<span class="pill pill-today">${today} due today</span>`);
+  if (overdue) bits.push(`<span class="pill pill-overdue">${overdue} overdue</span>`);
+  bits.push(`<span class="pill pill-muted">${doneCount} done</span>`);
+  $("summary").innerHTML = bits.join("");
+}
+
+// Show Read more only where the note actually overflows. Measured more than
+// once because the first frame can land before the webfont has settled.
+function updateNoteClamps() {
+  document.querySelectorAll(".row-note").forEach((note) => {
+    const btn = note.parentElement.querySelector(".row-note-more");
+    if (!btn) return;
+    const open = note.classList.contains("open");
+    const overflowing = note.scrollHeight > note.clientHeight + 2;
+    btn.hidden = !(overflowing || open);
+    note.classList.toggle("is-clamped", overflowing && !open);
+  });
+}
+
+function scheduleNoteClampCheck() {
+  requestAnimationFrame(updateNoteClamps);
+  setTimeout(updateNoteClamps, 120);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateNoteClamps);
+}
+
+window.addEventListener("resize", () => {
+  clearTimeout(window.__noteClampT);
+  window.__noteClampT = setTimeout(updateNoteClamps, 150);
+});
+
+function render() {
+  TYPES.forEach(renderGroup);
+  renderSummary();
+  renderBackupStatus();
+  refreshCategoryFilter();
+  $("reset-filters").hidden = !filtersActive();
+  $("completed-list").hidden = !showCompleted;
+  $("completed-caret").textContent = showCompleted ? "▾" : "▸";
+  $("completed-toggle").setAttribute("aria-expanded", String(showCompleted));
+  $("load-more").hidden = !(showCompleted && mode === "cloud" && archiveLoaded < archiveTotal);
+  scheduleNoteClampCheck();
+}
+
+/* ==================================================================
+   Row interactions
+================================================================== */
+function closeMenu() {
+  if (openMenuId === null) return;
+  openMenuId = null;
+  render();
+}
+
+document.addEventListener("click", async (e) => {
+  const row = e.target.closest(".row");
+  const actionEl = e.target.closest("[data-action]");
+  if (!actionEl) {
+    if (!e.target.closest(".menu")) closeMenu();
+    return;
+  }
+
+  const id = row && row.dataset.id;
+  if (!id) return;
+  const action = actionEl.dataset.action;
+  const found = findTask(id);
+  if (!found) return;
+
+  switch (action) {
+    case "menu":
+      openMenuId = openMenuId === id ? null : id;
+      render();
+      break;
+
+    case "more": {
+      const note = row.querySelector(".row-note");
+      const btn = row.querySelector(".row-note-more");
+      const nowOpen = !expandedNotes.has(id);
+      if (nowOpen) expandedNotes.add(id); else expandedNotes.delete(id);
+      note.classList.toggle("open", nowOpen);
+      btn.textContent = nowOpen ? "Show less" : "Read more";
+      updateNoteClamps();
+      break;
+    }
+    case "start":    closeMenu(); await moveTask(id, "initiated"); break;
+    case "complete": closeMenu(); await moveTask(id, "completed"); toast("Marked done.", { tone: "success" }); break;
+    case "reopen":
+    case "backlog":  closeMenu(); await moveTask(id, "active"); break;
+    case "edit":
+      openMenuId = null; editingId = id; render(); focusEditor(id);
+      break;
+    case "notes":
+      openMenuId = null; openNotes(id); render();
+      break;
+    case "files":
+      openMenuId = null; openFiles(id); render();
+      break;
+    case "delete":
+      openMenuId = null; deleteWithUndo(id);
+      break;
+  }
+});
+
+function focusEditor(id) {
+  const input = document.querySelector(`.editor[data-id="${id}"] .edit-title`);
+  if (input) { input.focus(); input.select(); }
+}
+
+document.addEventListener("submit", (e) => {
+  const form = e.target.closest(".editor");
+  if (!form) return;
+  e.preventDefault();
+  saveEditor(form);
+});
+
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".edit-cancel")) { editingId = null; render(); }
+  if (e.target.closest(".edit-clear-due")) {
+    const form = e.target.closest(".editor");
+    if (form) form.querySelector(".edit-due").value = "";
+  }
+});
+
+async function saveEditor(form) {
+  const found = findTask(form.dataset.id);
+  if (!found) { editingId = null; render(); return; }
+
+  const titleInput = form.querySelector(".edit-title");
+  const text = titleInput.value.trim();
+  if (!text) {
+    titleInput.classList.add("invalid");
+    titleInput.placeholder = "Task name cannot be empty";
+    titleInput.focus();
+    return;
+  }
+
+  const task = found.task;
+  task.text = text;
+  task.category = form.querySelector(".edit-category").value;
+  task.priority = form.querySelector(".edit-priority").value;
+  task.dueDate = form.querySelector(".edit-due").value || null;
+  touch(task);
+
+  editingId = null;
+  render();
+  if (await persist(() => store.update(task), "Task could not be updated.")) {
+    toast("Task updated.", { tone: "success" });
+  }
+}
+
+/* ---- delete with undo: the write is deferred, so Undo is free ---- */
+function deleteWithUndo(id) {
+  const found = findTask(id);
+  if (!found) return;
+  const entry = { task: found.task, type: found.type, index: found.index };
+  taskData[found.type].splice(found.index, 1);
+  if (found.type === "completed") archiveTotal = Math.max(0, archiveTotal - 1);
+  render();
+
+  scheduleUndo([entry], `"${found.task.text}" deleted.`,
+    () => persist(() => store.remove([entry.task.id]), "Delete could not be saved."));
+}
+
+function scheduleUndo(entries, message, commit) {
+  if (pendingUndo) {
+    clearTimeout(pendingUndo.timer);
+    pendingUndo.commit();          // the previous delete stands
+  }
+
+  pendingUndo = {
+    commit,
+    timer: setTimeout(() => { const p = pendingUndo; pendingUndo = null; if (p) p.commit(); }, 10000)
+  };
+
+  toast(message, {
+    actionLabel: "Undo",
+    duration: 10000,
+    onAction: () => {
+      if (!pendingUndo) return;
+      clearTimeout(pendingUndo.timer);
+      pendingUndo = null;
+      entries.slice().sort((a, b) => a.index - b.index).forEach(({ task, type, index }) => {
+        taskData[type].splice(Math.min(index, taskData[type].length), 0, task);
+        if (type === "completed") archiveTotal += 1;
+      });
+      if (store.kind === "local") store.persist();
+      render();
+      toast("Restored.", { tone: "success" });
+    }
+  });
+}
+
+/* ==================================================================
+   Notes
+================================================================== */
+function openNotes(id) {
+  const found = findTask(id);
+  if (!found) return;
+  notesTarget = { id, type: found.type };
+  $("notes-title").textContent = found.task.text;
+  $("notes-textarea").value = found.task.notes || "";
+  openModal("notes-modal");
+  setTimeout(() => $("notes-textarea").focus(), 50);
+}
+
+function applyFormat(kind, color) {
+  const ta = $("notes-textarea");
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const selected = ta.value.slice(start, end);
+  if (!selected) { toast("Select some text first.", { tone: "warn" }); ta.focus(); return; }
+
+  let out = selected;
+  if (kind === "bold") out = `**${selected}**`;
+  else if (kind === "italic") out = `*${selected}*`;
+  else if (kind === "color") out = `[${color}]${selected}[/${color}]`;
+  else if (kind === "clear") out = plainNotes(selected);
+
+  ta.value = ta.value.slice(0, start) + out + ta.value.slice(end);
+  const pos = start + out.length;
+  ta.setSelectionRange(pos, pos);
+  ta.focus();
+}
+
+document.querySelectorAll(".format-bar [data-fmt]").forEach((b) =>
+  b.addEventListener("click", () => applyFormat(b.dataset.fmt)));
+document.querySelectorAll(".format-bar [data-color]").forEach((b) =>
+  b.addEventListener("click", () => applyFormat("color", b.dataset.color)));
+
+$("save-notes").addEventListener("click", async () => {
+  if (!notesTarget) return closeModal("notes-modal");
+  const found = findTask(notesTarget.id);
+  const id = notesTarget.id;
+  closeModal("notes-modal");
+  if (!found) return;
+
+  found.task.notes = $("notes-textarea").value.trim();
+  touch(found.task);
+  render();
+  if (await persist(() => store.update(found.task), "Notes could not be saved.")) {
+    toast("Notes saved.", { tone: "success" });
+  }
+});
+
+/* ==================================================================
+   Attachments
+================================================================== */
+function openFiles(id) {
+  const found = findTask(id);
+  if (!found) return;
+  filesTarget = id;
+  $("files-title").textContent = found.task.text;
+  $("dropzone-hint").textContent = store.supportsFiles
+    ? `Up to ${MAX_UPLOAD_MB} MB per file`
+    : "Attachments need the cloud setup — see SETUP.md";
+  $("dropzone").classList.toggle("disabled", !store.supportsFiles);
+  renderFiles();
+  openModal("files-modal");
+}
+
+function renderFiles() {
+  const list = $("file-list");
+  const found = filesTarget && findTask(filesTarget);
+  list.innerHTML = "";
+
+  if (!found) return;
+  const files = found.task.attachments || [];
+
+  if (!files.length) {
+    const li = document.createElement("li");
+    li.className = "file-empty";
+    li.textContent = "No documents attached.";
+    list.appendChild(li);
+    return;
+  }
+
+  files.slice()
+    .sort((a, b) => Date.parse(b.uploaded_at) - Date.parse(a.uploaded_at))
+    .forEach((att) => {
+      const li = document.createElement("li");
+      li.className = "file-row";
+      li.innerHTML = `
+        <button type="button" class="file-name" data-open="${escapeHtml(att.id)}"
+                title="Open ${escapeHtml(att.file_name)}">${escapeHtml(att.file_name)}</button>
+        <span class="file-meta">${escapeHtml(fileSize(att.file_size))} · ${escapeHtml(formatStamp(att.uploaded_at))}</span>
+        <button type="button" class="btn-ghost small" data-open="${escapeHtml(att.id)}">Open</button>
+        <button type="button" class="btn-ghost small" data-download="${escapeHtml(att.id)}">Save</button>
+        <button type="button" class="icon-btn" data-remove-file="${escapeHtml(att.id)}" aria-label="Remove">✕</button>
+      `;
+      list.appendChild(li);
+    });
+}
+
+async function uploadFiles(fileList) {
+  const found = filesTarget && findTask(filesTarget);
+  if (!found) return;
+
+  if (!store.supportsFiles) {
+    toast("Attachments need the cloud setup. See SETUP.md.", { tone: "warn" });
+    return;
+  }
+
+  for (const file of Array.from(fileList)) {
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      toast(`"${file.name}" is ${fileSize(file.size)}. The project's limit is ${MAX_UPLOAD_MB} MB — raise it in Supabase (Project Settings > Storage) and update MAX_UPLOAD_MB to match. The free plan caps this at 50 MB.`,
+        { tone: "error", duration: 14000 });
+      continue;
+    }
+
+    const bar = addProgressRow(file);
+    try {
+      const att = await store.upload(found.task, file, (fraction) => bar.set(fraction));
+      found.task.attachments.push(att);
+      bar.done();
+      renderFiles();
+      render();
+      toast(`${file.name} attached.`, { tone: "success" });
+    } catch (error) {
+      bar.fail();
+      // Log the whole object: Supabase errors carry useful fields beyond .message
+      console.error("Upload failed for", file.name, {
+        message: error && error.message,
+        status: error && (error.status || error.statusCode),
+        error: error
+      });
+
+      const raw = (error && (error.message || error.error || "")) + "";
+      let hint = "";
+      if (/bucket/i.test(raw))                      hint = " The task-files bucket is missing.";
+      else if (/row-level|policy|denied|403/i.test(raw)) hint = " The storage policies are missing — run supabase-storage.sql.";
+      else if (/payload|too large|413|exceeded/i.test(raw)) hint = ` The file is larger than the project's upload limit.`;
+      else if (/jwt|session|401/i.test(raw))        hint = " Session expired — sign out and back in.";
+      else if (/network|failed to fetch/i.test(raw)) hint = " Network problem.";
+
+      toast(`${file.name} failed.${hint} ${raw}`.trim(), { tone: "error", duration: 12000 });
+    }
+  }
+}
+
+// A live row in the file list while an upload is in flight
+function addProgressRow(file) {
+  const li = document.createElement("li");
+  li.className = "file-row uploading";
+  li.innerHTML = `
+    <span class="file-name">${escapeHtml(file.name)}</span>
+    <span class="file-meta upload-pct">0%</span>
+    <span class="upload-track"><span class="upload-fill"></span></span>
+  `;
+  const list = $("file-list");
+  const placeholder = list.querySelector(".file-empty");
+  if (placeholder) placeholder.remove();
+  list.prepend(li);
+
+  const fill = li.querySelector(".upload-fill");
+  const pct = li.querySelector(".upload-pct");
+
+  return {
+    set(fraction) {
+      const percent = Math.min(100, Math.round((fraction || 0) * 100));
+      fill.style.width = percent + "%";
+      pct.textContent = percent + "%";
+    },
+    done() { li.remove(); },
+    fail() {
+      li.classList.add("failed");
+      pct.textContent = "failed";
+      setTimeout(() => li.remove(), 2500);
+    }
+  };
+}
+
+$("pick-file").addEventListener("click", () => $("file-input").click());
+$("file-input").addEventListener("change", (e) => {
+  // Copy out of the live FileList FIRST: clearing input.value empties it,
+  // so reading afterwards yields nothing and the upload silently does nothing.
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";                 // lets you pick the same file again
+  if (files.length) uploadFiles(files);
+});
+
+const dropzone = $("dropzone");
+["dragenter", "dragover"].forEach((ev) =>
+  dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  dropzone.addEventListener(ev, (e) => { e.preventDefault(); dropzone.classList.remove("over"); }));
+dropzone.addEventListener("drop", (e) => {
+  if (e.dataTransfer && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
+$("file-list").addEventListener("click", async (e) => {
+  const found = filesTarget && findTask(filesTarget);
+  if (!found) return;
+
+  const openId = e.target.dataset.open;
+  if (openId) {
+    const att = found.task.attachments.find((a) => a.id === openId);
+    // Open the tab now, while we still have the click. Fetching the signed URL
+    // first would lose the user gesture and Chrome would block the popup.
+    const tab = window.open("", "_blank");
+    try {
+      const url = await store.fileUrl(att, false);
+      if (tab) tab.location.href = url;
+      else toast("Allow pop-ups for this page to open documents.", { tone: "warn" });
+    } catch (error) {
+      if (tab) tab.close();
+      toast("That file could not be opened. " + (error.message || ""), { tone: "error" });
+    }
+    return;
+  }
+
+  const downloadId = e.target.dataset.download;
+  if (downloadId) {
+    const att = found.task.attachments.find((a) => a.id === downloadId);
+    try {
+      const url = await store.fileUrl(att, true);   // forces a save, not a preview
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = att.file_name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      toast("That file could not be saved. " + (error.message || ""), { tone: "error" });
+    }
+    return;
+  }
+
+  const removeId = e.target.dataset.removeFile;
+  if (removeId) {
+    const att = found.task.attachments.find((a) => a.id === removeId);
+    askConfirm("Remove document", `"${att.file_name}" will be permanently deleted.`, async () => {
+      try {
+        await store.deleteFile(att);
+        found.task.attachments = found.task.attachments.filter((a) => a.id !== removeId);
+        renderFiles();
+        render();
+        toast("Document removed.");
+      } catch (error) {
+        toast("That file could not be removed.", { tone: "error" });
+      }
+    }, "Delete");
+  }
+});
+
+/* ==================================================================
+   Toolbar
+================================================================== */
+let searchTimer = null;
+$("search-input").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const value = e.target.value;
+  searchTimer = setTimeout(async () => {
+    filters.search = value;
+    // Searching has to reach archived tasks that were never loaded
+    if (mode === "cloud") await persist(() => cloudStore.fetchArchive(true), "Archive search failed.");
+    render();
+  }, 200);
+});
+
+$("filter-category").addEventListener("change", (e) => { filters.category = e.target.value; render(); });
+$("filter-priority").addEventListener("change", (e) => { filters.priority = e.target.value; render(); });
+$("sort-by").addEventListener("change", (e) => { sortBy = e.target.value; saveUI(); render(); });
+
+$("reset-filters").addEventListener("click", async () => {
+  filters = { search: "", category: "all", priority: "all" };
+  $("search-input").value = "";
+  $("filter-category").value = "all";
+  $("filter-priority").value = "all";
+  if (mode === "cloud") await persist(() => cloudStore.fetchArchive(true));
+  render();
+});
+
+function refreshCategoryFilter() {
+  const select = $("filter-category");
+  const extra = Array.from(new Set(allTasks().map((t) => t.category).filter(Boolean)))
+    .filter((c) => !CATEGORIES.includes(c)).sort();
+  const used = [...CATEGORIES, ...extra];
+  const wanted = ["all", ...used];
+  if (Array.from(select.options).map((o) => o.value).join("|") === wanted.join("|")) return;
+
+  const keep = filters.category;
+  select.innerHTML = `<option value="all">All categories</option>` +
+    used.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+  select.value = used.includes(keep) ? keep : "all";
+  if (select.value === "all") filters.category = "all";
+}
+
+$("completed-toggle").addEventListener("click", () => {
+  showCompleted = !showCompleted;
+  saveUI();
+  render();
+});
+
+$("load-more").addEventListener("click", async () => {
+  $("load-more").disabled = true;
+  $("load-more").textContent = "Loading…";
+  await persist(() => store.loadMoreArchive(), "Could not load more.");
+  if (mode === "cloud") await persist(() => cloudStore.attachFiles());
+  $("load-more").disabled = false;
+  $("load-more").textContent = "Load older completed tasks";
+  render();
+});
+
+/* ==================================================================
+   Create and clear
+================================================================== */
+$("task-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = $("task-input");
+  const text = input.value.trim();
+  if (!text) return;
+
+  await addTask({
+    text,
+    category: $("category-input").value,
+    priority: $("priority-input").value,
+    dueDate: $("due-date-input").value || null
+  });
+
+  input.value = "";
+  $("due-date-input").value = "";
+  input.focus();
+});
+
+$("clear-completed").addEventListener("click", () => {
+  const done = getTasks("completed");
+  if (!done.length) return toast("Nothing completed to clear.");
+
+  const extra = mode === "cloud" && archiveTotal > done.length
+    ? ` Only the ${done.length} loaded here will be removed.` : "";
+
+  askConfirm("Clear completed tasks",
+    `${done.length} completed task${done.length === 1 ? "" : "s"} will be removed, along with any documents attached to them.${extra} You can undo for a few seconds.`,
+    () => {
+      const entries = done.map((task, index) => ({ task, type: "completed", index }));
+      const ids = done.map((t) => t.id);
+      taskData.completed = [];
+      archiveTotal = Math.max(0, archiveTotal - ids.length);
+      archiveLoaded = 0;
+      render();
+      scheduleUndo(entries, `${ids.length} completed task${ids.length === 1 ? "" : "s"} cleared.`,
+        () => persist(() => store.remove(ids), "Clear could not be saved."));
+    }, "Clear");
+});
+
+/* ==================================================================
+   Completed -> PDF
+================================================================== */
+function exportCompletedPdf() {
+  const tasks = sorted(getTasks("completed").filter(matches));
+  if (!tasks.length) return toast("No completed tasks to export.", { tone: "warn" });
+
+  const win = window.open("", "_blank");
+  if (!win) return toast("Allow pop-ups for this page to save the PDF.", { tone: "error" });
+
+  const doc = win.document;
+  const make = (tag, text) => {
+    const el = doc.createElement(tag);
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+
+  doc.title = "Completed Tasks";
+  const style = make("style");
+  style.textContent = [
+    "@page { size: A4 landscape; margin: 15mm; }",
+    "body { font-family: Arial, Helvetica, sans-serif; color: #000; font-size: 11pt; }",
+    "h1 { font-size: 16pt; margin: 0 0 4px 0; }",
+    ".meta { font-size: 9pt; color: #555; margin-bottom: 14px; }",
+    "table { width: 100%; border-collapse: collapse; }",
+    "th, td { border: 1px solid #999; padding: 6px 8px; text-align: left; vertical-align: top; }",
+    "th { background: #eee; font-size: 10pt; }",
+    "td { font-size: 10pt; }",
+    "tr { page-break-inside: avoid; }",
+    "thead { display: table-header-group; }"
+  ].join("\n");
+  doc.head.appendChild(style);
+
+  const meta = make("div", `${tasks.length} task${tasks.length === 1 ? "" : "s"} · Printed ${formatStamp(Date.now())}`);
+  meta.className = "meta";
+
+  const table = make("table");
+  const headRow = make("tr");
+  ["#", "Task", "Category", "Priority", "Docs", "Created", "Completed"]
+    .forEach((h) => headRow.appendChild(make("th", h)));
+  const thead = make("thead");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = make("tbody");
+  tasks.forEach((task, i) => {
+    const row = make("tr");
+    [String(i + 1), task.text, task.category, task.priority,
+     String((task.attachments || []).length || ""),
+     formatStamp(task.createdTs), formatStamp(task.lastUpdated)]
+      .forEach((v) => row.appendChild(make("td", v)));
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+
+  doc.body.appendChild(make("h1", "Completed Tasks"));
+  doc.body.appendChild(meta);
+  doc.body.appendChild(table);
+  win.focus();
+  setTimeout(() => win.print(), 350);
+}
+
+$("export-completed-pdf").addEventListener("click", exportCompletedPdf);
+
+/* ==================================================================
+   Backup and restore
+================================================================== */
+function renderBackupStatus() {
+  const stampEl = $("build-stamp");
+  if (stampEl) {
+    stampEl.textContent = `build ${BUILD} · ${mode}${mode === "cloud" ? ` · files up to ${MAX_UPLOAD_MB}MB` : ""}`;
+  }
+  const el = $("backup-status");
+  const total = mode === "cloud"
+    ? getTasks("active").length + getTasks("initiated").length + archiveTotal
+    : allTasks().length;
+
+  if (mode === "cloud") {
+    el.textContent = `${total} task${total === 1 ? "" : "s"} in your account`;
+    el.className = "backup-status";
+    return;
+  }
+
+  const last = localStorage.getItem(LAST_BACKUP_KEY);
+  if (!total) { el.textContent = "No tasks yet."; el.className = "backup-status"; return; }
+  if (!last) {
+    el.textContent = `${total} task${total === 1 ? "" : "s"} saved in this browser · never backed up`;
+    el.className = "backup-status warn";
+    return;
+  }
+  const days = Math.floor((Date.now() - Number(last)) / 86400000);
+  const when = days === 0 ? "today" : days === 1 ? "yesterday" : `${days} days ago`;
+  el.textContent = `${total} task${total === 1 ? "" : "s"} saved in this browser · backed up ${when}`;
+  el.className = "backup-status" + (days >= 7 ? " warn" : "");
+}
+
+$("backup-save").addEventListener("click", () => {
+  if (!allTasks().length) return toast("Nothing to back up yet.", { tone: "warn" });
+  const payload = { app: "adrien-task-tracker", version: 1, savedAt: new Date().toISOString(), tasks: taskData };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `task-tracker-backup-${todayISO()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  localStorage.setItem(LAST_BACKUP_KEY, String(Date.now()));
+  renderBackupStatus();
+  toast("Backup downloaded.", { tone: "success" });
+});
+
+$("backup-restore").addEventListener("click", () => $("backup-file").click());
+
+$("backup-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => restoreBackup(reader.result);
+  reader.onerror = () => toast("That file could not be opened.", { tone: "error" });
+  reader.readAsText(file);
+});
+
+function restoreBackup(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch (error) { return toast("That file is not a readable backup.", { tone: "error" }); }
+
+  const incoming = parsed && parsed.tasks ? parsed.tasks : parsed;
+  if (!incoming || !TYPES.every((k) => Array.isArray(incoming[k])))
+    return toast("That file is not a task tracker backup.", { tone: "error" });
+
+  const incomingCount = TYPES.reduce((n, k) => n + incoming[k].length, 0);
+  const currentCount = mode === "cloud"
+    ? getTasks("active").length + getTasks("initiated").length + archiveTotal
+    : allTasks().length;
+
+  const apply = async () => {
+    TYPES.forEach((type) => {
+      taskData[type] = incoming[type].map((t) => normalize({
+        ...t,
+        id: mode === "cloud" ? uuid() : t.id
+      }, type));
+    });
+    archiveTotal = taskData.completed.length;
+    archiveLoaded = taskData.completed.length;
+    render();
+    if (await persist(() => store.replaceAll(allTasks()), "Restore could not be saved.")) {
+      toast(`Restored ${incomingCount} task${incomingCount === 1 ? "" : "s"}.`, { tone: "success" });
+    }
+  };
+
+  if (!currentCount) return apply();
+
+  askConfirm("Restore backup",
+    `This replaces the ${currentCount} task${currentCount === 1 ? "" : "s"} currently in the tracker with ${incomingCount} from the backup. This cannot be undone.`,
+    apply, "Replace");
+}
+
+/* ==================================================================
+   Keyboard
+================================================================== */
+const typingInField = (el) =>
+  el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+
+document.addEventListener("keydown", (e) => {
+  const openDialog = document.querySelector(".modal:not([hidden])");
+
+  if (e.key === "Escape") {
+    if (openDialog) return closeModal(openDialog.id);
+    if (openMenuId) return closeMenu();
+    if (editingId) { editingId = null; render(); }
+    return;
+  }
+
+  if (openDialog && openDialog.id === "notes-modal" && document.activeElement === $("notes-textarea")) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") { e.preventDefault(); applyFormat("bold"); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "i") { e.preventDefault(); applyFormat("italic"); }
+    return;
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    $("search-input").focus();
+    $("search-input").select();
+    return;
+  }
+
+  if (typingInField(document.activeElement) || openDialog) return;
+  if (e.key === "/") { e.preventDefault(); $("search-input").focus(); }
+  if (e.key.toLowerCase() === "n") { e.preventDefault(); $("task-input").focus(); }
+});
+
+/* ==================================================================
+   Authentication
+================================================================== */
+let authMode = "signin";
+
+function showGate() {
+  $("gate").hidden = false;
+  $("app").hidden = true;
+  $("app-header").hidden = true;
+}
+
+function showApp() {
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  $("app-header").hidden = false;
+}
+
+function authError(message) {
+  const el = $("auth-error");
+  el.textContent = message;
+  el.hidden = !message;
+}
+
+function setAuthMode(next) {
+  authMode = next;
+  const signingIn = authMode === "signin";
+  $("auth-sub").textContent = signingIn ? "Sign in to your tasks" : "Create your account";
+  $("auth-submit").textContent = signingIn ? "Sign in" : "Create account";
+  $("auth-toggle").textContent = signingIn ? "Create one" : "I already have an account";
+  $("auth-password").autocomplete = signingIn ? "current-password" : "new-password";
+  $("auth-reset").hidden = !signingIn;
+  authError("");
+}
+
+$("auth-toggle").addEventListener("click", () => setAuthMode(authMode === "signin" ? "signup" : "signin"));
+
+$("auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = $("auth-email").value.trim();
+  const password = $("auth-password").value;
+  const submit = $("auth-submit");
+
+  authError("");
+  submit.disabled = true;
+  submit.textContent = authMode === "signin" ? "Signing in…" : "Creating…";
+
+  try {
+    if (authMode === "signin") {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (!data.session) {
+        authError("Check your email for a confirmation link, then sign in.");
+        setAuthMode("signin");
+        return;
+      }
+    }
+  } catch (error) {
+    authError(error.message || "That did not work. Check your details and try again.");
+  } finally {
+    submit.disabled = false;
+    setAuthMode(authMode);
+  }
+});
+
+$("auth-reset").addEventListener("click", async () => {
+  const email = $("auth-email").value.trim();
+  if (!email) return authError("Enter your email address first.");
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+  authError(error ? error.message : "Password reset link sent. Check your email.");
+});
+
+$("sign-out").addEventListener("click", async () => {
+  await sb.auth.signOut();
+});
+
+async function bootSignedIn(user) {
+  currentUser = user;
+  $("account-email").textContent = user.email;
+  $("account").hidden = false;
+  store = cloudStore;
+  mode = "cloud";
+  showApp();
+  await persist(() => store.loadAll(), "Tasks could not be loaded.");
+  render();
+}
+
+/* ==================================================================
+   Start
+================================================================== */
+async function init() {
+  $("category-input").innerHTML = CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("");
+  loadUI();
+  $("sort-by").value = sortBy;
+  setAuthMode("signin");
+
+  const configured = SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase;
+
+  if (!configured) {
+    // Local mode: exactly how the tracker behaved before the cloud setup
+    mode = "local";
+    store = localStore;
+    const banner = $("mode-banner");
+    banner.hidden = false;
+    banner.innerHTML = SUPABASE_URL || SUPABASE_ANON_KEY
+      ? "Cloud setup incomplete — running locally. Check both values in index.html."
+      : "Running locally in this browser. Follow SETUP.md to enable sign-in, permanent storage and document attachments.";
+    showApp();
+    await store.loadAll();
+    render();
+    return;
+  }
+
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) {
+      if (!currentUser) bootSignedIn(session.user);
+    } else {
+      currentUser = null;
+      taskData = { active: [], initiated: [], completed: [] };
+      $("account").hidden = true;
+      showGate();
+    }
+  });
+
+  const { data } = await sb.auth.getSession();
+  if (data.session && data.session.user) await bootSignedIn(data.session.user);
+  else showGate();
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
+</script>
+
+</body>
+</html>

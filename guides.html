@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="pragma" content="no-cache">
+<title>Playbook</title>
+<link rel="stylesheet" href="styles.css?v=57">
+<script src="theme.js?v=1"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- Sign in -->
+<div class="gate" id="gate" hidden>
+  <form class="gate-box" id="auth-form">
+    <h1>Playbook</h1>
+    <p class="gate-sub" id="auth-sub">Sign in to your notes</p>
+    <label class="gate-label" for="auth-email">Email</label>
+    <input type="email" id="auth-email" autocomplete="email" required>
+    <label class="gate-label" for="auth-password">Password</label>
+    <input type="password" id="auth-password" autocomplete="current-password" required minlength="6">
+    <p class="gate-error" id="auth-error" hidden></p>
+    <button type="submit" class="btn-primary gate-submit" id="auth-submit">Sign in</button>
+    <div class="gate-links">
+      <button type="button" class="link-btn" id="auth-toggle">Create one</button>
+      <button type="button" class="link-btn" id="auth-reset">Forgot password?</button>
+    </div>
+  </form>
+</div>
+
+<header class="app-header" id="app-header" hidden>
+  <div class="topbar">
+    <nav class="tabs">
+      <a href="index.html" class="tab">Tasks</a>
+      <a href="guides.html" class="tab is-active" aria-current="page">Playbook</a>
+      <a href="projects.html" class="tab">Projects</a>
+      <a href="processes.html" class="tab">Processes</a>
+      <a href="documents.html" class="tab">Docs &amp; Notes</a>
+    </nav>
+    <div class="topbar-right">
+      <button type="button" class="theme-toggle" data-theme-toggle>&#9728; Light</button>
+      <div class="account" id="account" hidden>
+        <span class="account-email" id="account-email"></span>
+        <button type="button" class="btn-ghost small" id="sign-out">Sign out</button>
+      </div>
+    </div>
+  </div>
+  <div class="page-line">
+    <h1>Playbook</h1>
+  </div>
+</header>
+
+<main class="app" id="app" hidden>
+
+  <div class="mode-banner" id="mode-banner" hidden></div>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input type="search" id="search-input" placeholder="Search titles and instructions">
+    </div>
+    <select id="sort-by" aria-label="Sort by">
+      <option value="recent">Sort: Recently updated</option>
+      <option value="created">Sort: Newest</option>
+      <option value="alpha">Sort: A–Z</option>
+    </select>
+    <button type="button" class="btn-primary" id="new-guide">New note</button>
+  </div>
+
+  <p class="result-line" id="result-line" hidden></p>
+
+  <div class="guide-list" id="guide-list"></div>
+
+  <footer class="backup-bar">
+    <span class="backup-status" id="status-line"></span>
+    <span class="build-stamp" id="build-stamp"></span>
+  </footer>
+</main>
+
+<!-- Editor -->
+<div class="modal" id="editor-modal" hidden>
+  <div class="modal-box wide">
+    <div class="modal-head">
+      <h3 id="editor-title">New note</h3>
+      <button type="button" class="icon-btn" data-close="editor-modal" aria-label="Close">✕</button>
+    </div>
+
+    <label class="gate-label" for="guide-title">What did you learn?</label>
+    <input type="text" id="guide-title" class="guide-title-input" placeholder="e.g. How to run the month-end reconciliation">
+    <div class="dupe-warning" id="dupe-warning" hidden></div>
+
+    <div class="editor-head">
+      <div class="format-bar" id="md-bar">
+        <button type="button" class="fmt" data-md="h" title="Heading">H</button>
+        <button type="button" class="fmt" data-md="bold" title="Bold"><b>B</b></button>
+        <button type="button" class="fmt" data-md="italic" title="Italic"><i>I</i></button>
+        <button type="button" class="fmt" data-md="code" title="Code">&lt;/&gt;</button>
+        <span class="fmt-sep"></span>
+        <button type="button" class="fmt" data-md="bullet" title="Bullet list">• List</button>
+        <button type="button" class="fmt" data-md="number" title="Numbered list">1. Steps</button>
+        <button type="button" class="fmt" data-md="quote" title="Note / callout">❝</button>
+        <span class="fmt-sep"></span>
+        <button type="button" class="fmt" data-md="link" title="Link">Link</button>
+      </div>
+      <button type="button" class="btn-ghost small" id="toggle-preview">Preview</button>
+    </div>
+
+    <textarea id="guide-body" class="guide-body-input"
+      placeholder="Write the steps.
+
+# Heading
+1. First step
+2. Second step
+- A bullet
+**bold**  *italic*  `code`
+> A warning worth remembering
+
+Paste a screenshot straight into this box to attach it."></textarea>
+
+    <div class="guide-preview" id="guide-preview" hidden></div>
+
+    <div class="modal-section">
+      <div class="editor-head">
+        <h4>Files and screenshots</h4>
+        <span class="dropzone-hint" id="attach-hint"></span>
+      </div>
+      <div class="dropzone small" id="dropzone">
+        <p class="dropzone-text">Drag files here, <button type="button" class="link-btn" id="pick-file">choose files</button>, or paste a screenshot</p>
+        <input type="file" id="file-input" multiple hidden>
+      </div>
+      <ul class="file-list" id="file-list"></ul>
+    </div>
+
+    <div class="modal-foot">
+      <button type="button" class="btn-ghost danger" id="delete-guide" hidden>Delete note</button>
+      <span class="editor-spacer"></span>
+      <button type="button" class="btn-ghost" data-close="editor-modal">Cancel</button>
+      <button type="button" class="btn-primary" id="save-guide">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image lightbox -->
+<div class="modal" id="image-modal" hidden>
+  <div class="lightbox">
+    <button type="button" class="icon-btn lightbox-close" data-close="image-modal" aria-label="Close">✕</button>
+    <img id="lightbox-img" alt="">
+    <p class="lightbox-name" id="lightbox-name"></p>
+  </div>
+</div>
+
+<!-- Confirm -->
+<div class="modal" id="confirm-modal" hidden>
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <button type="button" class="icon-btn" data-close="confirm-modal" aria-label="Close">✕</button>
+    </div>
+    <p class="modal-text" id="confirm-text"></p>
+    <div class="modal-foot">
+      <button type="button" class="btn-ghost" data-close="confirm-modal">Cancel</button>
+      <button type="button" class="btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ==================================================================
+   CONFIGURATION - same project as the task tracker
+================================================================== */
+const SUPABASE_URL      = "https://hfmlmhegypwlntvdguup.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
+
+const MAX_UPLOAD_MB = 50;
+const BUILD  = "2026-09-23b";
+const BUCKET = "task-files";
+const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;
+const CLAMP_LINES = 3;            // lines of a note shown before Read more
+
+let sb = null, currentUser = null;
+let guides = [];
+let search = "";
+let sortBy = "recent";
+let editing = null;               // { id | null }
+let expanded = new Set();         // ids showing full instructions
+let confirmAction = null;
+
+const $ = (id) => document.getElementById(id);
+
+/* ==================================================================
+   Utilities
+================================================================== */
+function escapeHtml(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function uuid() {
+  return (crypto.randomUUID && crypto.randomUUID()) ||
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+function formatStamp(value) {
+  const d = new Date(value);
+  if (isNaN(d)) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short", day: "2-digit", month: "short", year: "2-digit"
+  }).formatToParts(d);
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+  return `${get("weekday")}-${get("day")}-${get("month")}-${get("year")}`;
+}
+
+function fileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
+  return `${(n / 1073741824).toFixed(2)} GB`;
+}
+
+const isImage = (att) => /^image\//.test(att.mime_type || "");
+
+function toast(message, options = {}) {
+  const el = document.createElement("div");
+  el.className = "toast" + (options.tone ? ` toast-${options.tone}` : "");
+  const span = document.createElement("span");
+  span.textContent = message;
+  el.appendChild(span);
+  $("toasts").appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 250); },
+    options.duration || 4000);
+  return el;
+}
+
+function openModal(id) { $(id).hidden = false; document.body.classList.add("modal-open"); }
+function closeModal(id) {
+  $(id).hidden = true;
+  if (!document.querySelector(".modal:not([hidden])")) document.body.classList.remove("modal-open");
+  if (id === "editor-modal") editing = null;
+  if (id === "confirm-modal") confirmAction = null;
+}
+
+function askConfirm(title, text, onConfirm, label = "Confirm") {
+  $("confirm-title").textContent = title;
+  $("confirm-text").textContent = text;
+  $("confirm-ok").textContent = label;
+  confirmAction = onConfirm;
+  openModal("confirm-modal");
+}
+
+document.querySelectorAll("[data-close]").forEach((el) =>
+  el.addEventListener("click", () => closeModal(el.dataset.close)));
+document.querySelectorAll(".modal").forEach((m) =>
+  m.addEventListener("click", (e) => { if (e.target === m) closeModal(m.id); }));
+$("confirm-ok").addEventListener("click", () => {
+  const a = confirmAction; closeModal("confirm-modal"); if (a) a();
+});
+
+/* ==================================================================
+   Markdown - written out rather than pulled from a library so the
+   output is predictable and everything is escaped before formatting.
+================================================================== */
+function inlineMd(text) {
+  return text
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    // only http(s) links, so nothing script-flavoured can sneak through
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+/* ------------------------------------------------------------------
+   Duplicate titles
+
+   Two scores, whichever is higher:
+   - character bigrams, which catch near-misses and typos
+   - whole words, which catch the same words in a different order
+   Either on its own misses obvious duplicates.
+------------------------------------------------------------------ */
+const DUPE_THRESHOLD = 0.5;
+
+function normaliseTitle(t) {
+  return String(t || "").toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function bigramCounts(text) {
+  const map = new Map();
+  for (let i = 0; i < text.length - 1; i++) {
+    const g = text.slice(i, i + 2);
+    map.set(g, (map.get(g) || 0) + 1);
+  }
+  return map;
+}
+
+function charScore(a, b) {
+  const ga = bigramCounts(a), gb = bigramCounts(b);
+  if (!ga.size || !gb.size) return 0;
+  let overlap = 0, total = 0;
+  ga.forEach((n, g) => { total += n; if (gb.has(g)) overlap += Math.min(n, gb.get(g)); });
+  gb.forEach((n) => { total += n; });
+  return total ? (2 * overlap) / total : 0;
+}
+
+function wordScore(a, b) {
+  const A = new Set(a.split(" ").filter(Boolean));
+  const B = new Set(b.split(" ").filter(Boolean));
+  if (!A.size || !B.size) return 0;
+  let shared = 0;
+  A.forEach((w) => { if (B.has(w)) shared++; });
+  return (2 * shared) / (A.size + B.size);
+}
+
+function similarity(a, b) {
+  const A = normaliseTitle(a), B = normaliseTitle(b);
+  if (!A || !B) return 0;
+  if (A === B) return 1;
+  return Math.max(charScore(A, B), wordScore(A, B));
+}
+
+function similarNotes(title, excludeId) {
+  if (normaliseTitle(title).length < 3) return [];
+  return guides
+    .filter((g) => g.id !== excludeId)
+    .map((g) => ({ guide: g, score: similarity(title, g.title) }))
+    .filter((m) => m.score >= DUPE_THRESHOLD)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+}
+
+function checkDuplicates() {
+  const box = $("dupe-warning");
+  const title = $("guide-title").value;
+  const matches = similarNotes(title, editing && editing.id);
+
+  if (!matches.length) { box.hidden = true; box.innerHTML = ""; return; }
+
+  const exact = matches[0].score === 1;
+  box.hidden = false;
+  box.className = "dupe-warning" + (exact ? " is-exact" : "");
+  box.innerHTML = `
+    <span class="dupe-lead">${exact ? "A note with this exact title already exists" : "This looks like a note you already have"}</span>
+    <ul class="dupe-list">
+      ${matches.map((m) => `
+        <li>
+          <button type="button" class="dupe-open" data-open-guide="${m.guide.id}">${escapeHtml(m.guide.title)}</button>
+          <span class="dupe-score">${Math.round(m.score * 100)}% alike</span>
+        </li>`).join("")}
+    </ul>
+    <span class="dupe-hint">You can still save this one.</span>`;
+}
+
+function renderMarkdown(src) {
+  const lines = String(src || "").split("\n");
+  let html = "", list = null;
+
+  let para = [];
+  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  // Escape first, then apply inline formatting, so no markup can come from the text
+  const fmt = (text) => inlineMd(escapeHtml(text));
+  // Consecutive plain lines belong to one paragraph, joined by line breaks -
+  // that is what someone typing notes expects, and it keeps the visible line
+  // count honest for the Read more clamp.
+  const closePara = () => {
+    if (para.length) { html += `<p>${para.map(fmt).join("<br>")}</p>`; para = []; }
+  };
+  const closeBlocks = () => { closePara(); closeList(); };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+
+    if (!line.trim()) { closeBlocks(); continue; }
+
+    let m;
+    if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
+      closeBlocks();
+      const level = m[1].length + 2;      // h3..h5, so page headings stay above
+      html += `<h${level}>${fmt(m[2])}</h${level}>`;
+      continue;
+    }
+
+    if (/^(---|\*\*\*)\s*$/.test(line)) { closeBlocks(); html += "<hr>"; continue; }
+
+    if ((m = line.match(/^>\s?(.*)$/))) {
+      closeBlocks();
+      html += `<blockquote>${fmt(m[1])}</blockquote>`;
+      continue;
+    }
+
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      if (list !== "ul") { closeBlocks(); html += "<ul>"; list = "ul"; }
+      html += `<li>${fmt(m[1])}</li>`;
+      continue;
+    }
+
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+      if (list !== "ol") { closeBlocks(); html += "<ol>"; list = "ol"; }
+      html += `<li>${fmt(m[1])}</li>`;
+      continue;
+    }
+
+    closeList();
+    para.push(line);
+  }
+
+  closeBlocks();
+  return html;
+}
+
+/* ==================================================================
+   Data
+================================================================== */
+async function loadGuides() {
+  const { data, error } = await sb.from("guides").select("*").order("updated_at", { ascending: false });
+  if (error) {
+    // PostgREST reports a missing table as PGRST205 "Could not find the table",
+    // not as Postgres's "relation does not exist"
+    if (error.code === "PGRST205" || /could not find the table|does not exist/i.test(error.message)) {
+      const b = $("mode-banner");
+      b.hidden = false;
+      b.textContent = "The playbook tables do not exist yet — run supabase-guides.sql in the Supabase SQL Editor, then reload.";
+      guides = [];
+      return;
+    }
+    throw error;
+  }
+
+  guides = data;
+  const ids = guides.map((g) => g.id);
+  if (ids.length) {
+    const { data: files } = await sb.from("guide_files").select("*").in("guide_id", ids);
+    const byGuide = {};
+    (files || []).forEach((f) => { (byGuide[f.guide_id] = byGuide[f.guide_id] || []).push(f); });
+    guides.forEach((g) => { g.files = byGuide[g.id] || []; });
+  }
+  guides.forEach((g) => { g.files = g.files || []; });
+}
+
+function visibleGuides() {
+  const term = search.trim().toLowerCase();
+  let list = guides.filter((g) =>
+    !term || (g.title + " " + g.body).toLowerCase().includes(term));
+
+  list = list.slice().sort((a, b) => {
+    if (sortBy === "alpha") return a.title.localeCompare(b.title);
+    if (sortBy === "created") return Date.parse(b.created_at) - Date.parse(a.created_at);
+    return Date.parse(b.updated_at) - Date.parse(a.updated_at);
+  });
+  return list;
+}
+
+/* ==================================================================
+   Rendering
+================================================================== */
+function highlight(text, term) {
+  const safe = escapeHtml(text);
+  if (!term) return safe;
+  const escTerm = escapeHtml(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return safe.replace(new RegExp(`(${escTerm})`, "gi"), "<mark>$1</mark>");
+}
+
+function render() {
+  const list = $("guide-list");
+  const items = visibleGuides();
+  const term = search.trim();
+
+  $("result-line").hidden = !term;
+  $("result-line").textContent = term
+    ? `${items.length} note${items.length === 1 ? "" : "s"} matching "${term}"`
+    : "";
+
+  list.innerHTML = "";
+
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "guide-empty";
+    empty.innerHTML = guides.length
+      ? `Nothing matches that search.`
+      : `<strong>No notes yet.</strong><br>Press <em>New note</em> and write down the first thing you were shown.`;
+    list.appendChild(empty);
+    $("status-line").textContent = guides.length ? `${guides.length} notes` : "";
+    return;
+  }
+
+  items.forEach((g) => list.appendChild(buildCard(g, term)));
+  $("status-line").textContent = `${guides.length} note${guides.length === 1 ? "" : "s"}`;
+}
+
+function buildCard(g, term) {
+  const card = document.createElement("article");
+  card.className = "guide-card";
+  card.dataset.id = g.id;
+
+  const images = g.files.filter(isImage);
+  const docs = g.files.filter((f) => !isImage(f));
+  const isOpen = expanded.has(g.id);
+
+  card.innerHTML = `
+    <div class="guide-card-head">
+      <h2 class="guide-card-title">${highlight(g.title, term)}</h2>
+      <div class="guide-card-actions">
+        ${g.files.length ? `<span class="guide-badge">📎 ${g.files.length}</span>` : ""}
+        <button type="button" class="btn-ghost small" data-edit="${g.id}">Edit</button>
+      </div>
+    </div>
+    <div class="guide-meta">Updated ${escapeHtml(formatStamp(g.updated_at))}</div>
+    <div class="guide-body${isOpen ? " open" : ""}" data-body="${g.id}">
+      <div class="guide-body-inner">${renderMarkdown(g.body)}</div>
+    </div>
+    <button type="button" class="read-more" data-toggle="${g.id}" hidden>
+      ${isOpen ? "Show less" : "Read more"}
+    </button>
+    ${images.length ? `<div class="thumb-row" data-thumbs="${g.id}"></div>` : ""}
+    ${docs.length ? `<div class="doc-row">${docs.map((d) =>
+      `<button type="button" class="doc-pill" data-file="${d.id}" title="${escapeHtml(d.file_name)}">
+         ${escapeHtml(d.file_name)} <span class="doc-size">${escapeHtml(fileSize(d.file_size))}</span>
+       </button>`).join("")}</div>` : ""}
+  `;
+  return card;
+}
+
+// Only offer "Read more" when the text is actually taller than the clamp
+function updateClamps() {
+  document.querySelectorAll(".guide-body").forEach((body) => {
+    const id = body.dataset.body;
+    const btn = document.querySelector(`[data-toggle="${id}"]`);
+    if (!btn) return;
+    const overflowing = body.scrollHeight > body.clientHeight + 2;
+    const open = expanded.has(id);
+    btn.hidden = !(overflowing || open);
+    // Only fade the bottom edge when text is actually cut off, otherwise a
+    // short note looks like it has been truncated when it has not
+    body.classList.toggle("is-clamped", overflowing && !open);
+  });
+}
+
+async function renderThumbs() {
+  for (const g of visibleGuides()) {
+    const holder = document.querySelector(`[data-thumbs="${g.id}"]`);
+    if (!holder || holder.dataset.done) continue;
+    holder.dataset.done = "1";
+    for (const img of g.files.filter(isImage)) {
+      try {
+        const url = await signedUrl(img, false);
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "thumb";
+        el.dataset.file = img.id;
+        el.innerHTML = `<img src="${url}" alt="${escapeHtml(img.file_name)}" loading="lazy">`;
+        holder.appendChild(el);
+      } catch (e) { /* a broken thumbnail should not break the card */ }
+    }
+  }
+}
+
+async function refresh() {
+  render();
+  scheduleClampCheck();
+  await renderThumbs();
+  $("build-stamp").textContent = `build ${BUILD} · files up to ${MAX_UPLOAD_MB}MB`;
+}
+
+// Measure more than once: the first frame can land before the webfont has
+// settled, and a mis-measure hides Read more on a note that needs it.
+function scheduleClampCheck() {
+  requestAnimationFrame(updateClamps);
+  setTimeout(updateClamps, 120);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateClamps);
+}
+
+window.addEventListener("resize", () => { clearTimeout(window.__clampT); window.__clampT = setTimeout(updateClamps, 150); });
+
+/* ==================================================================
+   Card interactions
+================================================================== */
+$("guide-list").addEventListener("click", async (e) => {
+  const toggle = e.target.closest("[data-toggle]");
+  if (toggle) {
+    const id = toggle.dataset.toggle;
+    if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+    const body = document.querySelector(`[data-body="${id}"]`);
+    body.classList.toggle("open", expanded.has(id));
+    toggle.textContent = expanded.has(id) ? "Show less" : "Read more";
+    return;
+  }
+
+  const edit = e.target.closest("[data-edit]");
+  if (edit) return openEditor(guides.find((g) => g.id === edit.dataset.edit));
+
+  const fileBtn = e.target.closest("[data-file]");
+  if (fileBtn) {
+    const id = fileBtn.dataset.file;
+    const att = guides.flatMap((g) => g.files).find((f) => f.id === id);
+    if (!att) return;
+    if (isImage(att)) return openLightbox(att);
+    const tab = window.open("", "_blank");
+    try {
+      const url = await signedUrl(att, false);
+      if (tab) tab.location.href = url;
+    } catch (err) { if (tab) tab.close(); toast("Could not open that file.", { tone: "error" }); }
+  }
+});
+
+async function openLightbox(att) {
+  try {
+    const url = await signedUrl(att, false);
+    $("lightbox-img").src = url;
+    $("lightbox-name").textContent = att.file_name;
+    openModal("image-modal");
+  } catch (e) { toast("Could not open that image.", { tone: "error" }); }
+}
+
+/* ==================================================================
+   Editor
+================================================================== */
+function openEditor(guide) {
+  editing = guide ? { id: guide.id } : { id: null };
+  $("editor-title").textContent = guide ? "Edit note" : "New note";
+  $("guide-title").value = guide ? guide.title : "";
+  $("guide-body").value = guide ? guide.body : "";
+  $("delete-guide").hidden = !guide;
+  $("attach-hint").textContent = guide ? "" : "Save first, or attach now and it saves automatically";
+  showPreview(false);
+  renderEditorFiles();
+  checkDuplicates();
+  openModal("editor-modal");
+  setTimeout(() => $("guide-title").focus(), 50);
+}
+
+$("new-guide").addEventListener("click", () => openEditor(null));
+
+let dupeTimer = null;
+$("guide-title").addEventListener("input", () => {
+  clearTimeout(dupeTimer);
+  dupeTimer = setTimeout(checkDuplicates, 250);
+});
+
+// Jump to the note it matched, rather than making you hunt for it
+$("dupe-warning").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-open-guide]");
+  if (!btn) return;
+  const target = guides.find((g) => g.id === btn.dataset.openGuide);
+  if (!target) return;
+
+  const draft = $("guide-body").value.trim();
+  const isNew = !(editing && editing.id);
+  if (isNew && draft) {
+    askConfirm("Open the other note?",
+      "What you have typed here has not been saved and will be lost.",
+      () => openEditor(target), "Discard and open");
+    return;
+  }
+  openEditor(target);
+});
+
+function currentGuide() {
+  return editing && editing.id ? guides.find((g) => g.id === editing.id) : null;
+}
+
+function showPreview(on) {
+  $("guide-preview").hidden = !on;
+  $("guide-body").hidden = on;
+  $("toggle-preview").textContent = on ? "Write" : "Preview";
+  if (on) $("guide-preview").innerHTML = renderMarkdown($("guide-body").value) ||
+    '<p class="muted-note">Nothing to preview yet.</p>';
+}
+
+$("toggle-preview").addEventListener("click", () => showPreview($("guide-preview").hidden));
+
+/* ---- markdown toolbar ---- */
+$("md-bar").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-md]");
+  if (!btn) return;
+  const ta = $("guide-body");
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const sel = ta.value.slice(start, end);
+  const kind = btn.dataset.md;
+
+  const wrap = (before, after) => before + (sel || "text") + (after === undefined ? before : after);
+  const perLine = (prefix) => (sel || "step")
+    .split("\n")
+    .map((l, i) => (prefix === "1. " ? `${i + 1}. ` : prefix) + l)
+    .join("\n");
+
+  let out, caretInside = false;
+  switch (kind) {
+    case "h":      out = "## " + (sel || "Heading"); break;
+    case "bold":   out = wrap("**"); break;
+    case "italic": out = wrap("*"); break;
+    case "code":   out = wrap("`"); break;
+    case "bullet": out = perLine("- "); break;
+    case "number": out = perLine("1. "); break;
+    case "quote":  out = "> " + (sel || "Remember this"); break;
+    case "link":   out = `[${sel || "text"}](https://)`; caretInside = true; break;
+  }
+
+  ta.value = ta.value.slice(0, start) + out + ta.value.slice(end);
+  const pos = caretInside ? start + out.length - 1 : start + out.length;
+  ta.setSelectionRange(pos, pos);
+  ta.focus();
+});
+
+/* ---- save ---- */
+async function ensureSaved() {
+  const title = $("guide-title").value.trim();
+  const body = $("guide-body").value;
+
+  if (!title) {
+    $("guide-title").classList.add("invalid");
+    $("guide-title").placeholder = "Give this note a title first";
+    $("guide-title").focus();
+    throw new Error("A title is needed first.");
+  }
+  $("guide-title").classList.remove("invalid");
+
+  if (editing.id) {
+    const { error } = await sb.from("guides").update({ title, body }).eq("id", editing.id);
+    if (error) throw error;
+    const g = currentGuide();
+    g.title = title; g.body = body; g.updated_at = new Date().toISOString();
+    return editing.id;
+  }
+
+  const row = { id: uuid(), user_id: currentUser.id, title, body };
+  const { data, error } = await sb.from("guides").insert(row).select().single();
+  if (error) throw error;
+  data.files = [];
+  guides.unshift(data);
+  editing.id = data.id;
+  $("editor-title").textContent = "Edit note";
+  $("delete-guide").hidden = false;
+  $("attach-hint").textContent = "";
+  return data.id;
+}
+
+$("save-guide").addEventListener("click", async () => {
+  try {
+    await ensureSaved();
+    closeModal("editor-modal");
+    await refresh();
+    toast("Note saved.", { tone: "success" });
+  } catch (error) {
+    if (error.message !== "A title is needed first.") {
+      toast(error.message || "Could not save.", { tone: "error" });
+    }
+  }
+});
+
+$("delete-guide").addEventListener("click", () => {
+  const g = currentGuide();
+  if (!g) return;
+  askConfirm("Delete note", `"${g.title}" and its ${g.files.length} file(s) will be permanently deleted.`,
+    async () => {
+      try {
+        const paths = g.files.map((f) => f.file_path);
+        if (paths.length) await sb.storage.from(BUCKET).remove(paths);
+        const { error } = await sb.from("guides").delete().eq("id", g.id);
+        if (error) throw error;
+        guides = guides.filter((x) => x.id !== g.id);
+        closeModal("editor-modal");
+        await refresh();
+        toast("Note deleted.");
+      } catch (error) { toast(error.message || "Could not delete.", { tone: "error" }); }
+    }, "Delete");
+});
+
+/* ==================================================================
+   Files
+================================================================== */
+async function signedUrl(att, forDownload) {
+  const { data, error } = await sb.storage.from(BUCKET)
+    .createSignedUrl(att.file_path, 3600, forDownload ? { download: att.file_name } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function uploadOne(guideId, file, onProgress) {
+  const path = `${currentUser.id}/guides/${guideId}/${uuid()}-${file.name}`;
+
+  if (file.size >= RESUMABLE_THRESHOLD && window.tus) {
+    const { data } = await sb.auth.getSession();
+    const token = data.session.access_token;
+    await new Promise((resolve, reject) => {
+      const up = new window.tus.Upload(file, {
+        endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+        headers: { authorization: `Bearer ${token}`, "x-upsert": "false" },
+        uploadDataDuringCreation: true, chunkSize: RESUMABLE_THRESHOLD,
+        metadata: { bucketName: BUCKET, objectName: path, contentType: file.type || "application/octet-stream" },
+        onError: reject, onSuccess: resolve,
+        onProgress: (s, t) => onProgress && onProgress(s / t)
+      });
+      up.start();
+    });
+  } else {
+    const { error } = await sb.storage.from(BUCKET)
+      .upload(path, file, { contentType: file.type || "application/octet-stream" });
+    if (error) throw error;
+  }
+
+  const row = {
+    guide_id: guideId, user_id: currentUser.id,
+    file_name: file.name, file_path: path,
+    file_size: file.size, mime_type: file.type || null
+  };
+  const { data, error } = await sb.from("guide_files").insert(row).select().single();
+  if (error) { await sb.storage.from(BUCKET).remove([path]); throw error; }
+  return data;
+}
+
+async function attachFiles(fileList) {
+  let guideId;
+  try { guideId = await ensureSaved(); }
+  catch (e) {
+    if (e.message === "A title is needed first.") toast("Give the note a title, then attach.", { tone: "warn" });
+    return;
+  }
+
+  const g = currentGuide();
+  for (const file of Array.from(fileList)) {
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      toast(`"${file.name}" is ${fileSize(file.size)} — over the ${MAX_UPLOAD_MB} MB limit.`,
+        { tone: "error", duration: 10000 });
+      continue;
+    }
+    const pending = toast(`Uploading ${file.name}…`, { duration: 120000 });
+    try {
+      const att = await uploadOne(guideId, file);
+      g.files.push(att);
+      pending.remove();
+      renderEditorFiles();
+      toast(`${file.name} attached.`, { tone: "success" });
+    } catch (error) {
+      pending.remove();
+      console.error("Upload failed", file.name, error);
+      toast(`${file.name} failed. ${error.message || ""}`.trim(), { tone: "error", duration: 10000 });
+    }
+  }
+}
+
+function renderEditorFiles() {
+  const list = $("file-list");
+  list.innerHTML = "";
+  const g = currentGuide();
+  const files = g ? g.files : [];
+
+  if (!files.length) {
+    const li = document.createElement("li");
+    li.className = "file-empty";
+    li.textContent = "Nothing attached yet.";
+    list.appendChild(li);
+    return;
+  }
+
+  files.forEach((att) => {
+    const li = document.createElement("li");
+    li.className = "file-row";
+    li.innerHTML = `
+      <button type="button" class="file-name" data-open="${att.id}">${escapeHtml(att.file_name)}</button>
+      <span class="file-meta">${escapeHtml(fileSize(att.file_size))}</span>
+      <button type="button" class="btn-ghost small" data-save="${att.id}">Save</button>
+      <button type="button" class="icon-btn" data-remove="${att.id}" aria-label="Remove">✕</button>
+    `;
+    list.appendChild(li);
+  });
+}
+
+$("file-list").addEventListener("click", async (e) => {
+  const g = currentGuide();
+  if (!g) return;
+  const find = (id) => g.files.find((f) => f.id === id);
+
+  const openId = e.target.dataset.open;
+  if (openId) {
+    const att = find(openId);
+    if (isImage(att)) return openLightbox(att);
+    const tab = window.open("", "_blank");
+    try { const url = await signedUrl(att, false); if (tab) tab.location.href = url; }
+    catch (err) { if (tab) tab.close(); toast("Could not open that file.", { tone: "error" }); }
+    return;
+  }
+
+  const saveId = e.target.dataset.save;
+  if (saveId) {
+    try {
+      const url = await signedUrl(find(saveId), true);
+      const a = document.createElement("a");
+      a.href = url; a.download = find(saveId).file_name;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (err) { toast("Could not save that file.", { tone: "error" }); }
+    return;
+  }
+
+  const removeId = e.target.dataset.remove;
+  if (removeId) {
+    const att = find(removeId);
+    askConfirm("Remove file", `"${att.file_name}" will be permanently deleted.`, async () => {
+      try {
+        await sb.storage.from(BUCKET).remove([att.file_path]);
+        await sb.from("guide_files").delete().eq("id", att.id);
+        g.files = g.files.filter((f) => f.id !== att.id);
+        renderEditorFiles();
+        toast("File removed.");
+      } catch (err) { toast("Could not remove that file.", { tone: "error" }); }
+    }, "Delete");
+  }
+});
+
+$("pick-file").addEventListener("click", () => $("file-input").click());
+$("file-input").addEventListener("change", (e) => {
+  // Copy out before clearing: input.value = "" empties the live FileList
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  if (files.length) attachFiles(files);
+});
+
+const dz = $("dropzone");
+["dragenter", "dragover"].forEach((ev) =>
+  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) =>
+  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("over"); }));
+dz.addEventListener("drop", (e) => {
+  if (e.dataTransfer && e.dataTransfer.files.length) attachFiles(e.dataTransfer.files);
+});
+
+// Paste a screenshot straight into the note
+$("editor-modal").addEventListener("paste", (e) => {
+  const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+  const images = items.filter((i) => i.type.startsWith("image/"));
+  if (!images.length) return;                 // ordinary text paste, leave it alone
+  e.preventDefault();
+
+  const stampName = `screenshot-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+  const files = images.map((i) => {
+    const blob = i.getAsFile();
+    return new File([blob], blob.name && blob.name !== "image.png" ? blob.name : stampName,
+      { type: blob.type });
+  });
+  attachFiles(files);
+});
+
+/* ==================================================================
+   Toolbar
+================================================================== */
+let searchTimer = null;
+$("search-input").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const v = e.target.value;
+  searchTimer = setTimeout(() => { search = v; refresh(); }, 150);
+});
+
+$("sort-by").addEventListener("change", (e) => { sortBy = e.target.value; refresh(); });
+
+document.addEventListener("keydown", (e) => {
+  const dialog = document.querySelector(".modal:not([hidden])");
+  if (e.key === "Escape" && dialog) return closeModal(dialog.id);
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault(); $("search-input").focus(); $("search-input").select();
+  }
+  if (dialog && (e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault(); $("save-guide").click();
+  }
+});
+
+/* ==================================================================
+   Auth
+================================================================== */
+let authMode = "signin";
+
+function setAuthMode(next) {
+  authMode = next;
+  const inMode = authMode === "signin";
+  $("auth-sub").textContent = inMode ? "Sign in to your notes" : "Create your account";
+  $("auth-submit").textContent = inMode ? "Sign in" : "Create account";
+  $("auth-toggle").textContent = inMode ? "Create one" : "I already have an account";
+  $("auth-reset").hidden = !inMode;
+  $("auth-error").hidden = true;
+}
+
+function authError(msg) { const el = $("auth-error"); el.textContent = msg; el.hidden = !msg; }
+
+$("auth-toggle").addEventListener("click", () => setAuthMode(authMode === "signin" ? "signup" : "signin"));
+
+$("auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  authError("");
+  const email = $("auth-email").value.trim(), password = $("auth-password").value;
+  try {
+    if (authMode === "signin") {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (!data.session) { authError("Check your email for a confirmation link."); setAuthMode("signin"); }
+    }
+  } catch (error) { authError(error.message || "That did not work."); }
+});
+
+$("auth-reset").addEventListener("click", async () => {
+  const email = $("auth-email").value.trim();
+  if (!email) return authError("Enter your email first.");
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+  authError(error ? error.message : "Password reset link sent.");
+});
+
+$("sign-out").addEventListener("click", () => sb.auth.signOut());
+
+/* ==================================================================
+   Start
+================================================================== */
+async function boot(user) {
+  currentUser = user;
+  $("account-email").textContent = user.email;
+  $("account").hidden = false;
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  $("app-header").hidden = false;
+  try { await loadGuides(); } catch (e) { toast(e.message || "Could not load notes.", { tone: "error" }); }
+  await refresh();
+}
+
+async function init() {
+  document.documentElement.style.setProperty("--clamp-lines", CLAMP_LINES);
+  setAuthMode("signin");
+  if (!window.supabase) {
+    document.body.innerHTML = "<p style='padding:40px;font-family:sans-serif;color:#ccc'>Could not load the Supabase library. Check your connection and reload.</p>";
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) { if (!currentUser) boot(session.user); }
+    else {
+      currentUser = null; guides = [];
+      $("account").hidden = true;
+      $("gate").hidden = false; $("app").hidden = true; $("app-header").hidden = true;
+    }
+  });
+
+  const { data } = await sb.auth.getSession();
+  if (data.session && data.session.user) await boot(data.session.user);
+  else $("gate").hidden = false;
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
+
+</body>
+</html>

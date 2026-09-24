@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="cache-control" content="no-cache, must-revalidate">
+<meta http-equiv="pragma" content="no-cache">
+<title>Projects</title>
+<link rel="stylesheet" href="styles.css?v=57">
+<script src="theme.js?v=1"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="gate" id="gate" hidden>
+  <form class="gate-box" id="auth-form">
+    <h1>Projects</h1>
+    <p class="gate-sub" id="auth-sub">Sign in to your projects</p>
+    <label class="gate-label" for="auth-email">Email</label>
+    <input type="email" id="auth-email" autocomplete="email" required>
+    <label class="gate-label" for="auth-password">Password</label>
+    <input type="password" id="auth-password" autocomplete="current-password" required minlength="6">
+    <p class="gate-error" id="auth-error" hidden></p>
+    <button type="submit" class="btn-primary gate-submit" id="auth-submit">Sign in</button>
+    <div class="gate-links">
+      <button type="button" class="link-btn" id="auth-toggle">Create one</button>
+      <button type="button" class="link-btn" id="auth-reset">Forgot password?</button>
+    </div>
+  </form>
+</div>
+
+<header class="app-header" id="app-header" hidden>
+  <div class="topbar">
+    <nav class="tabs">
+      <a href="index.html" class="tab">Tasks</a>
+      <a href="guides.html" class="tab">Playbook</a>
+      <a href="projects.html" class="tab is-active" aria-current="page">Projects</a>
+      <a href="processes.html" class="tab">Processes</a>
+      <a href="documents.html" class="tab">Docs &amp; Notes</a>
+    </nav>
+    <div class="topbar-right">
+      <button type="button" class="theme-toggle" data-theme-toggle>&#9728; Light</button>
+      <div class="account" id="account" hidden>
+        <span class="account-email" id="account-email"></span>
+        <button type="button" class="btn-ghost small" id="sign-out">Sign out</button>
+      </div>
+    </div>
+  </div>
+  <div class="page-line">
+    <h1>Projects</h1>
+      <div class="summary" id="summary"></div>
+  </div>
+</header>
+
+<main class="app" id="app" hidden>
+  <div class="mode-banner" id="mode-banner" hidden></div>
+
+  <form class="quick-add" id="project-form" autocomplete="off">
+    <input type="text" id="project-name" placeholder="Name a project and press Enter" required>
+    <select id="project-category" aria-label="Category"></select>
+    <input type="date" id="project-due" aria-label="Target date">
+    <button type="submit" class="btn-primary">Add</button>
+  </form>
+
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <input type="search" id="search-input" placeholder="Search projects and steps">
+    </div>
+    <select id="sort-by" aria-label="Sort by">
+      <option value="next">Sort: Next step due</option>
+      <option value="target">Sort: Target date</option>
+      <option value="progress">Sort: Least finished</option>
+      <option value="alpha">Sort: A–Z</option>
+    </select>
+  </div>
+
+  <div class="project-list" id="project-list"></div>
+
+  <section class="finished-group" id="finished-group" hidden>
+    <button type="button" class="group-toggle" id="finished-toggle" aria-expanded="false">
+      <span class="caret" id="finished-caret">▸</span>
+      <h2>Finished <span class="count" id="finished-count">0</span></h2>
+    </button>
+    <div class="project-list" id="finished-list" hidden></div>
+  </section>
+
+  <footer class="backup-bar">
+    <span class="backup-status" id="status-line"></span>
+    <span class="build-stamp" id="build-stamp"></span>
+  </footer>
+</main>
+
+<div class="modal" id="confirm-modal" hidden>
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <button type="button" class="icon-btn" data-close="confirm-modal" aria-label="Close">✕</button>
+    </div>
+    <p class="modal-text" id="confirm-text"></p>
+    <div class="modal-foot">
+      <button type="button" class="btn-ghost" data-close="confirm-modal">Cancel</button>
+      <button type="button" class="btn-danger" id="confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+/* ==================================================================
+   Configuration - same project as the tracker and playbook
+================================================================== */
+const SUPABASE_URL      = "https://hfmlmhegypwlntvdguup.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
+const BUILD = "2026-09-23b";
+const CATEGORIES = ["CRM", "CR", "Query", "Migration", "Project", "Issue", "Task", "By Karen", "Other"];
+
+let sb = null, currentUser = null;
+let projects = [];
+let search = "", sortBy = "next";
+let showFinished = false;
+let openIds = new Set();          // projects showing their steps
+let openNotes = new Set();        // project or step ids showing their note
+let editingNote = null;           // { kind: "project" | "step", id }
+let confirmAction = null;
+
+const $ = (id) => document.getElementById(id);
+
+/* ==================================================================
+   Utilities
+================================================================== */
+function escapeHtml(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function uuid() {
+  return (crypto.randomUUID && crypto.randomUUID()) ||
+    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0;
+      return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+function parseDue(d) {
+  if (!d) return null;
+  const [y, m, day] = String(d).split("-").map(Number);
+  if (!y || !m || !day) return null;
+  return new Date(y, m - 1, day);
+}
+
+function daysUntil(d) {
+  const due = parseDue(d);
+  if (!due) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((due - today) / 86400000);
+}
+
+function formatStamp(value) {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseDue(value) : new Date(value);
+  if (!d || isNaN(d)) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short", day: "2-digit", month: "short", year: "2-digit"
+  }).formatToParts(d);
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value || "";
+  return `${get("weekday")}-${get("day")}-${get("month")}-${get("year")}`;
+}
+
+function dueTone(d) {
+  const n = daysUntil(d);
+  if (n === null) return "none";
+  if (n < 0) return "overdue";
+  if (n === 0) return "today";
+  if (n <= 6) return "soon";
+  return "later";
+}
+
+function dueWords(d) {
+  const n = daysUntil(d);
+  if (n === null) return "No date";
+  if (n < 0) return `${Math.abs(n)} ${Math.abs(n) === 1 ? "day" : "days"} late`;
+  if (n === 0) return "Due today";
+  if (n === 1) return "Due tomorrow";
+  return `Due in ${n} days`;
+}
+
+/* Same lightweight markdown as the Playbook, so notes read the same
+   way across the app. Escaped first, so nothing in a note becomes markup. */
+function inlineMd(text) {
+  return text
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+
+function renderMarkdown(src) {
+  const lines = String(src || "").split("\n");
+  let html = "", list = null, para = [];
+  const fmt = (t) => inlineMd(escapeHtml(t));
+  const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+  const closePara = () => { if (para.length) { html += `<p>${para.map(fmt).join("<br>")}</p>`; para = []; } };
+  const closeBlocks = () => { closePara(); closeList(); };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { closeBlocks(); continue; }
+    let m;
+    if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { closeBlocks(); html += `<h4>${fmt(m[2])}</h4>`; continue; }
+    if (/^(---|\*\*\*)\s*$/.test(line)) { closeBlocks(); html += "<hr>"; continue; }
+    if ((m = line.match(/^>\s?(.*)$/))) { closeBlocks(); html += `<blockquote>${fmt(m[1])}</blockquote>`; continue; }
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      if (list !== "ul") { closeBlocks(); html += "<ul>"; list = "ul"; }
+      html += `<li>${fmt(m[1])}</li>`; continue;
+    }
+    if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+      if (list !== "ol") { closeBlocks(); html += "<ol>"; list = "ol"; }
+      html += `<li>${fmt(m[1])}</li>`; continue;
+    }
+    closeList();
+    para.push(line);
+  }
+  closeBlocks();
+  return html;
+}
+
+const hasNote = (x) => !!(x && x.notes && x.notes.trim());
+
+// One note block, used for both a project and a step
+function buildNote(entity, kind) {
+  const open = openNotes.has(entity.id);
+  const editing = editingNote && editingNote.kind === kind && editingNote.id === entity.id;
+
+  if (editing) {
+    return `
+      <div class="note-block is-editing" data-note-for="${entity.id}">
+        <textarea class="note-input" data-note-input="${entity.id}"
+          placeholder="What should you remember about this?"></textarea>
+        <div class="note-actions">
+          <button type="button" class="btn-ghost small" data-act="note-cancel">Cancel</button>
+          <button type="button" class="btn-primary small" data-act="note-save">Save note</button>
+        </div>
+      </div>`;
+  }
+
+  if (!hasNote(entity)) {
+    return `<div class="note-block"><button type="button" class="note-add" data-act="note-edit">+ Add note</button></div>`;
+  }
+
+  return `
+    <div class="note-block">
+      <button type="button" class="note-toggle" data-act="note-toggle">
+        <span class="caret">${open ? "▾" : "▸"}</span> Note
+      </button>
+      ${open ? `
+        <div class="note-body">${renderMarkdown(entity.notes)}</div>
+        <button type="button" class="note-edit-link" data-act="note-edit">Edit note</button>
+      ` : ""}
+    </div>`;
+}
+
+function toast(message, options = {}) {
+  const el = document.createElement("div");
+  el.className = "toast" + (options.tone ? ` toast-${options.tone}` : "");
+  const span = document.createElement("span");
+  span.textContent = message;
+  el.appendChild(span);
+  $("toasts").appendChild(el);
+  setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 250); },
+    options.duration || 4000);
+  return el;
+}
+
+function openModal(id) { $(id).hidden = false; document.body.classList.add("modal-open"); }
+function closeModal(id) {
+  $(id).hidden = true;
+  document.body.classList.remove("modal-open");
+  if (id === "confirm-modal") confirmAction = null;
+}
+function askConfirm(title, text, onConfirm, label = "Confirm") {
+  $("confirm-title").textContent = title;
+  $("confirm-text").textContent = text;
+  $("confirm-ok").textContent = label;
+  confirmAction = onConfirm;
+  openModal("confirm-modal");
+}
+document.querySelectorAll("[data-close]").forEach((el) =>
+  el.addEventListener("click", () => closeModal(el.dataset.close)));
+document.querySelectorAll(".modal").forEach((m) =>
+  m.addEventListener("click", (e) => { if (e.target === m) closeModal(m.id); }));
+$("confirm-ok").addEventListener("click", () => {
+  const a = confirmAction; closeModal("confirm-modal"); if (a) a();
+});
+
+/* ==================================================================
+   Derived state - one place that decides how a project is doing
+================================================================== */
+function steps(p) { return (p.steps || []).slice().sort((a, b) => a.position - b.position); }
+
+function progress(p) {
+  const list = steps(p);
+  return { done: list.filter((s) => s.done).length, total: list.length };
+}
+
+function nextStep(p) {
+  return steps(p).find((s) => !s.done) || null;
+}
+
+// A project is at risk if anything in it has slipped, not just its end date
+function health(p) {
+  if (p.status === "done") return "done";
+  const late = steps(p).some((s) => !s.done && dueTone(s.due_date) === "overdue");
+  if (late || dueTone(p.due_date) === "overdue") return "late";
+  const soon = steps(p).some((s) => !s.done && ["today", "soon"].includes(dueTone(s.due_date)));
+  if (soon || ["today", "soon"].includes(dueTone(p.due_date))) return "soon";
+  return "steady";
+}
+
+/* ==================================================================
+   Data
+================================================================== */
+async function loadProjects() {
+  const { data, error } = await sb.from("projects").select("*").order("updated_at", { ascending: false });
+  if (error) {
+    if (error.code === "PGRST205" || /could not find the table|does not exist/i.test(error.message)) {
+      const b = $("mode-banner");
+      b.hidden = false;
+      b.textContent = "The projects tables do not exist yet — run supabase-projects.sql in the Supabase SQL Editor, then reload.";
+      projects = [];
+      return;
+    }
+    throw error;
+  }
+
+  projects = data;
+  const ids = projects.map((p) => p.id);
+  if (ids.length) {
+    const { data: rows } = await sb.from("project_steps").select("*").in("project_id", ids);
+    const byProject = {};
+    (rows || []).forEach((s) => { (byProject[s.project_id] = byProject[s.project_id] || []).push(s); });
+    projects.forEach((p) => { p.steps = byProject[p.id] || []; });
+  }
+  projects.forEach((p) => { p.steps = p.steps || []; });
+}
+
+function matchesSearch(p) {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  const hay = [p.name, p.category, p.summary, steps(p).map((s) => s.title).join(" ")].join(" ").toLowerCase();
+  return hay.includes(term);
+}
+
+function finishedProjects() {
+  return projects.filter((p) => p.status === "done" && matchesSearch(p))
+    .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+}
+
+function visible() {
+  let list = projects.filter((p) => p.status !== "done" && matchesSearch(p));
+
+  const nextDue = (p) => {
+    const n = nextStep(p);
+    const d = daysUntil(n ? n.due_date : p.due_date);
+    return d === null ? 99999 : d;
+  };
+
+  return list.sort((a, b) => {
+    if (sortBy === "alpha") return a.name.localeCompare(b.name);
+    if (sortBy === "target") {
+      const da = daysUntil(a.due_date), db = daysUntil(b.due_date);
+      return (da === null ? 99999 : da) - (db === null ? 99999 : db);
+    }
+    if (sortBy === "progress") {
+      const pa = progress(a), pb = progress(b);
+      return (pa.total ? pa.done / pa.total : 1) - (pb.total ? pb.done / pb.total : 1);
+    }
+    return nextDue(a) - nextDue(b);
+  });
+}
+
+/* ==================================================================
+   Rendering
+================================================================== */
+function highlight(text, term) {
+  const safe = escapeHtml(text);
+  if (!term) return safe;
+  const esc = escapeHtml(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return safe.replace(new RegExp(`(${esc})`, "gi"), "<mark>$1</mark>");
+}
+
+// The rail: one segment per step, so you read how many are left and which one
+// you are on. A percentage bar would hide both.
+function buildRail(p) {
+  const list = steps(p);
+  if (!list.length) return `<div class="rail rail-empty" title="No steps yet"></div>`;
+
+  const next = nextStep(p);
+  return `<div class="rail" role="img" aria-label="${progress(p).done} of ${list.length} steps done">` +
+    list.map((s) => {
+      let state = s.done ? "done" : "todo";
+      if (!s.done && dueTone(s.due_date) === "overdue") state = "late";
+      if (next && s.id === next.id && state !== "late") state = "current";
+      return `<span class="seg seg-${state}" title="${escapeHtml(s.title)}"></span>`;
+    }).join("") + `</div>`;
+}
+
+function buildStep(p, s, index) {
+  const tone = s.done ? "done" : dueTone(s.due_date);
+  return `
+    <li class="step${s.done ? " step-done" : ""}" data-step="${s.id}">
+      <button type="button" class="step-check" data-act="toggle" aria-label="${s.done ? "Mark not done" : "Mark done"}">
+        ${s.done ? "✓" : ""}
+      </button>
+      <span class="step-index">${String(index + 1).padStart(2, "0")}</span>
+      <span class="step-title">${escapeHtml(s.title)}</span>
+      <span class="step-due due-${tone}">${s.due_date ? escapeHtml(formatStamp(s.due_date)) : "—"}</span>
+      <span class="step-tools">
+        <button type="button" class="icon-btn${hasNote(s) ? " has-note" : ""}" data-act="note-edit" aria-label="Note">✎</button>
+        <button type="button" class="icon-btn" data-act="up"   aria-label="Move up">↑</button>
+        <button type="button" class="icon-btn" data-act="down" aria-label="Move down">↓</button>
+        <button type="button" class="icon-btn" data-act="drop" aria-label="Remove step">✕</button>
+      </span>
+      ${hasNote(s) || (editingNote && editingNote.kind === "step" && editingNote.id === s.id)
+        ? `<div class="step-note">${buildNote(s, "step")}</div>` : ""}
+    </li>`;
+}
+
+function buildCard(p, term) {
+  const { done, total } = progress(p);
+  const next = nextStep(p);
+  const state = health(p);
+  const open = openIds.has(p.id);
+  const list = steps(p);
+
+  const card = document.createElement("article");
+  card.className = `project state-${state}${open ? " is-open" : ""}`;
+  card.dataset.id = p.id;
+
+  card.innerHTML = `
+    <div class="project-head">
+      <button type="button" class="project-toggle" data-act="expand">
+        <span class="caret">${open ? "▾" : "▸"}</span>
+        <span class="project-name">${highlight(p.name, term)}</span>
+      </button>
+      ${hasNote(p) ? `<span class="note-marker" title="This project has a note">✎</span>` : ""}
+      <span class="chip">${escapeHtml(p.category)}</span>
+      <span class="project-target due-${dueTone(p.due_date)}">
+        <span class="date-label">Target</span>${p.due_date ? escapeHtml(formatStamp(p.due_date)) : "—"}
+      </span>
+      <span class="project-tools">
+        ${p.status === "done" ? `<button type="button" class="btn-ghost small" data-act="reopen">Reopen</button>` : ""}
+        <button type="button" class="btn-ghost small" data-act="edit">Edit</button>
+        <button type="button" class="icon-btn" data-act="remove" aria-label="Delete project">✕</button>
+      </span>
+    </div>
+
+    <div class="project-rail-row">
+      ${buildRail(p)}
+      <span class="rail-count">${done}/${total || 0}</span>
+    </div>
+
+    <div class="project-next">
+      ${total === 0
+        ? `<span class="muted-note">No steps yet — add the first one below.</span>`
+        : next
+          ? `<span class="next-label">Next</span>
+             <span class="next-index">${String(list.findIndex((s) => s.id === next.id) + 1).padStart(2, "0")}</span>
+             <span class="next-title">${escapeHtml(next.title)}</span>
+             <span class="next-due due-${dueTone(next.due_date)}">${next.due_date ? escapeHtml(dueWords(next.due_date)) : "No date"}</span>`
+          : `<span class="next-done">All steps done</span>`}
+    </div>
+
+    <div class="project-body">
+      <div class="project-note">${buildNote(p, "project")}</div>
+      <ul class="step-list">
+        ${list.map((s, i) => buildStep(p, s, i)).join("")}
+      </ul>
+      <form class="step-add" data-project="${p.id}">
+        <input type="text" class="step-input" placeholder="Add a step" required>
+        <input type="date" class="step-date" aria-label="Step due date">
+        <button type="submit" class="btn-ghost small">Add step</button>
+      </form>
+      <div class="project-foot">
+        ${p.status === "done"
+          ? `<button type="button" class="btn-ghost small" data-act="reopen">Reopen project</button>`
+          : `<button type="button" class="btn-ghost small" data-act="finish">Mark project finished</button>`}
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+function render() {
+  const list = $("project-list");
+  const term = search.trim();
+  const items = visible();
+  list.innerHTML = "";
+
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "guide-empty";
+    empty.innerHTML = projects.length
+      ? "Nothing matches that."
+      : "<strong>No projects yet.</strong><br>Name one above, then break it into steps.";
+    list.appendChild(empty);
+  } else {
+    items.forEach((p) => list.appendChild(buildCard(p, term)));
+  }
+
+  // Finished projects live in their own section so they are never lost
+  const finished = finishedProjects();
+  const fList = $("finished-list");
+  fList.innerHTML = "";
+  finished.forEach((p) => fList.appendChild(buildCard(p, term)));
+
+  $("finished-group").hidden = !projects.some((p) => p.status === "done");
+  $("finished-count").textContent = finished.length;
+  $("finished-list").hidden = !showFinished;
+  $("finished-caret").textContent = showFinished ? "▾" : "▸";
+  $("finished-toggle").setAttribute("aria-expanded", String(showFinished));
+
+  const open = projects.filter((p) => p.status !== "done");
+  const late = open.filter((p) => health(p) === "late").length;
+  const bits = [`<span class="pill">${open.length} open</span>`];
+  if (late) bits.push(`<span class="pill pill-overdue">${late} behind</span>`);
+  const upcoming = open.map(nextStep).filter(Boolean)
+    .map((s) => daysUntil(s.due_date)).filter((d) => d !== null && d >= 0).sort((a, b) => a - b)[0];
+  if (upcoming !== undefined) bits.push(`<span class="pill pill-today">next in ${upcoming}d</span>`);
+  bits.push(`<span class="pill pill-muted">${projects.filter((p) => p.status === "done").length} finished</span>`);
+  $("summary").innerHTML = bits.join("");
+
+  $("status-line").textContent = projects.length
+    ? `${projects.length} project${projects.length === 1 ? "" : "s"}` : "";
+  $("build-stamp").textContent = `build ${BUILD}`;
+}
+
+/* ==================================================================
+   Actions
+================================================================== */
+const findProject = (id) => projects.find((p) => p.id === id);
+
+document.addEventListener("click", async (e) => {
+  const card = e.target.closest(".project");
+  if (!card) return;
+  const p = findProject(card.dataset.id);
+  if (!p) return;
+  const act = e.target.closest("[data-act]");
+  if (!act) return;
+  const stepEl = e.target.closest(".step");
+  const step = stepEl ? p.steps.find((s) => s.id === stepEl.dataset.step) : null;
+
+  switch (act.dataset.act) {
+    case "expand":
+      if (openIds.has(p.id)) openIds.delete(p.id); else openIds.add(p.id);
+      render();
+      break;
+
+    case "toggle": {
+      step.done = !step.done;
+      render();
+      const { error } = await sb.from("project_steps").update({ done: step.done }).eq("id", step.id);
+      if (error) { step.done = !step.done; render(); toast("Could not save that step.", { tone: "error" }); }
+      break;
+    }
+
+    case "up":
+    case "down": {
+      const list = steps(p);
+      const i = list.findIndex((s) => s.id === step.id);
+      const j = act.dataset.act === "up" ? i - 1 : i + 1;
+      if (j < 0 || j >= list.length) break;
+
+      const before = list.map((s) => ({ id: s.id, position: s.position }));
+
+      // Move within the array, then renumber every step 0..n-1. Swapping two
+      // positions breaks down if any of them are equal, which happens easily.
+      const reordered = list.slice();
+      const [moved] = reordered.splice(i, 1);
+      reordered.splice(j, 0, moved);
+      reordered.forEach((s, idx) => { s.position = idx; });
+      render();
+
+      const changed = reordered.filter((s) => {
+        const prev = before.find((b) => b.id === s.id);
+        return prev && prev.position !== s.position;
+      });
+
+      // update, not upsert: upsert is an insert-on-conflict, so it demands the
+      // not-null columns (title, project_id, user_id) that a reorder does not send
+      const results = await Promise.all(changed.map((s) =>
+        sb.from("project_steps").update({ position: s.position }).eq("id", s.id)));
+
+      const failed = results.find((r) => r.error);
+      if (failed) {
+        before.forEach((b) => {
+          const s = p.steps.find((x) => x.id === b.id);
+          if (s) s.position = b.position;
+        });
+        render();
+        toast(`Could not save the new order. ${failed.error.message || ""}`.trim(),
+          { tone: "error", duration: 9000 });
+      }
+      break;
+    }
+
+    case "drop":
+      askConfirm("Remove step", `"${step.title}" will be removed from this project.`, async () => {
+        p.steps = p.steps.filter((s) => s.id !== step.id);
+        render();
+        const { error } = await sb.from("project_steps").delete().eq("id", step.id);
+        if (error) toast("Could not remove that step.", { tone: "error" });
+      }, "Remove");
+      break;
+
+    case "finish":
+    case "reopen": {
+      const status = act.dataset.act === "finish" ? "done" : "active";
+      p.status = status;
+      render();
+      const { error } = await sb.from("projects").update({ status }).eq("id", p.id);
+      if (error) toast("Could not update the project.", { tone: "error" });
+      else if (status === "done") {
+        showFinished = true;                  // so you can see where it landed
+        render();
+        toast(`"${p.name}" moved to Finished.`, { tone: "success" });
+      } else {
+        toast("Project reopened.", { tone: "success" });
+      }
+      break;
+    }
+
+    case "remove":
+      askConfirm("Delete project",
+        `"${p.name}" and its ${steps(p).length} step(s) will be permanently deleted.`,
+        async () => {
+          projects = projects.filter((x) => x.id !== p.id);
+          render();
+          const { error } = await sb.from("projects").delete().eq("id", p.id);
+          if (error) toast("Could not delete the project.", { tone: "error" });
+        }, "Delete");
+      break;
+
+    case "edit":
+      startEdit(card, p);
+      break;
+
+    /* ---- notes: the target is the step when the click came from one,
+            otherwise the project itself ---- */
+    case "note-toggle": {
+      const target = step || p;
+      if (openNotes.has(target.id)) openNotes.delete(target.id); else openNotes.add(target.id);
+      render();
+      break;
+    }
+
+    case "note-edit": {
+      const target = step || p;
+      editingNote = { kind: step ? "step" : "project", id: target.id };
+      openNotes.add(target.id);
+      render();
+      const box = document.querySelector(`[data-note-input="${target.id}"]`);
+      if (box) { box.value = target.notes || ""; box.focus(); }
+      break;
+    }
+
+    case "note-cancel":
+      editingNote = null;
+      render();
+      break;
+
+    case "note-save": {
+      const target = step || p;
+      const box = document.querySelector(`[data-note-input="${target.id}"]`);
+      const text = box ? box.value.trim() : "";
+      const previous = target.notes || "";
+      target.notes = text;
+      editingNote = null;
+      if (text) openNotes.add(target.id); else openNotes.delete(target.id);
+      render();
+
+      const table = step ? "project_steps" : "projects";
+      const { error } = await sb.from(table).update({ notes: text }).eq("id", target.id);
+      if (error) {
+        target.notes = previous;
+        render();
+        toast(/column .* does not exist/i.test(error.message || "")
+          ? "Notes need one more migration — run supabase-projects-notes.sql."
+          : "Could not save that note.", { tone: "error", duration: 9000 });
+      } else {
+        toast(text ? "Note saved." : "Note removed.", { tone: "success" });
+      }
+      break;
+    }
+  }
+});
+
+function startEdit(card, p) {
+  const head = card.querySelector(".project-head");
+  head.innerHTML = `
+    <form class="project-edit">
+      <input type="text" class="edit-name" value="">
+      <select class="edit-category">${CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("")}</select>
+      <input type="date" class="edit-due">
+      <button type="button" class="btn-ghost small edit-cancel">Cancel</button>
+      <button type="submit" class="btn-primary small">Save</button>
+    </form>`;
+  const form = head.querySelector("form");
+  form.querySelector(".edit-name").value = p.name;
+  form.querySelector(".edit-category").value = p.category;
+  form.querySelector(".edit-due").value = p.due_date || "";
+  form.querySelector(".edit-name").focus();
+
+  form.querySelector(".edit-cancel").addEventListener("click", render);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = form.querySelector(".edit-name").value.trim();
+    if (!name) { form.querySelector(".edit-name").focus(); return; }
+    p.name = name;
+    p.category = form.querySelector(".edit-category").value;
+    p.due_date = form.querySelector(".edit-due").value || null;
+    render();
+    const { error } = await sb.from("projects")
+      .update({ name: p.name, category: p.category, due_date: p.due_date }).eq("id", p.id);
+    if (error) toast("Could not save the project.", { tone: "error" });
+    else toast("Project updated.", { tone: "success" });
+  });
+}
+
+// Add a step. Delegated from the document for the same reason as above.
+document.addEventListener("submit", async (e) => {
+  const form = e.target.closest(".step-add");
+  if (!form) return;
+  e.preventDefault();
+  const p = findProject(form.dataset.project);
+  if (!p) return;
+
+  const input = form.querySelector(".step-input");
+  const dateInput = form.querySelector(".step-date");
+  const title = input.value.trim();
+  if (!title) return;
+
+  const row = {
+    id: uuid(), project_id: p.id, user_id: currentUser.id,
+    title, due_date: dateInput.value || null, done: false,
+    position: (steps(p).length ? steps(p)[steps(p).length - 1].position + 1 : 0)
+  };
+  p.steps.push(row);
+  input.value = ""; dateInput.value = "";
+  render();
+
+  const { error } = await sb.from("project_steps").insert(row);
+  if (error) {
+    p.steps = p.steps.filter((s) => s.id !== row.id);
+    render();
+    toast("Could not add that step.", { tone: "error" });
+  }
+});
+
+// New project
+$("project-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("project-name").value.trim();
+  if (!name) return;
+  const row = {
+    id: uuid(), user_id: currentUser.id, name,
+    category: $("project-category").value,
+    due_date: $("project-due").value || null,
+    status: "active"
+  };
+  const local = { ...row, summary: "", steps: [], updated_at: new Date().toISOString(), created_at: new Date().toISOString() };
+  projects.unshift(local);
+  openIds.add(row.id);
+  $("project-name").value = ""; $("project-due").value = "";
+  render();
+  $("project-name").focus();
+
+  const { error } = await sb.from("projects").insert(row);
+  if (error) {
+    projects = projects.filter((p) => p.id !== row.id);
+    render();
+    toast("Could not create the project.", { tone: "error" });
+  }
+});
+
+/* ==================================================================
+   Toolbar
+================================================================== */
+let searchTimer = null;
+$("search-input").addEventListener("input", (e) => {
+  clearTimeout(searchTimer);
+  const v = e.target.value;
+  searchTimer = setTimeout(() => { search = v; render(); }, 150);
+});
+$("finished-toggle").addEventListener("click", () => {
+  showFinished = !showFinished;
+  try { localStorage.setItem("trackerProjectsUI", JSON.stringify({ showFinished })); } catch (e) {}
+  render();
+});
+$("sort-by").addEventListener("change", (e) => { sortBy = e.target.value; render(); });
+
+document.addEventListener("keydown", (e) => {
+  const dialog = document.querySelector(".modal:not([hidden])");
+  if (e.key === "Escape" && dialog) return closeModal(dialog.id);
+
+  if (editingNote) {
+    if (e.key === "Escape") { editingNote = null; render(); return; }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      const btn = document.querySelector('[data-act="note-save"]');
+      if (btn) btn.click();
+      return;
+    }
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault(); $("search-input").focus(); $("search-input").select();
+  }
+});
+
+/* ==================================================================
+   Auth
+================================================================== */
+let authMode = "signin";
+function setAuthMode(next) {
+  authMode = next;
+  const inMode = authMode === "signin";
+  $("auth-sub").textContent = inMode ? "Sign in to your projects" : "Create your account";
+  $("auth-submit").textContent = inMode ? "Sign in" : "Create account";
+  $("auth-toggle").textContent = inMode ? "Create one" : "I already have an account";
+  $("auth-reset").hidden = !inMode;
+  $("auth-error").hidden = true;
+}
+function authError(msg) { const el = $("auth-error"); el.textContent = msg; el.hidden = !msg; }
+$("auth-toggle").addEventListener("click", () => setAuthMode(authMode === "signin" ? "signup" : "signin"));
+
+$("auth-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  authError("");
+  const email = $("auth-email").value.trim(), password = $("auth-password").value;
+  try {
+    if (authMode === "signin") {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (!data.session) { authError("Check your email for a confirmation link."); setAuthMode("signin"); }
+    }
+  } catch (error) { authError(error.message || "That did not work."); }
+});
+
+$("auth-reset").addEventListener("click", async () => {
+  const email = $("auth-email").value.trim();
+  if (!email) return authError("Enter your email first.");
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: window.location.href });
+  authError(error ? error.message : "Password reset link sent.");
+});
+
+$("sign-out").addEventListener("click", () => sb.auth.signOut());
+
+/* ==================================================================
+   Start
+================================================================== */
+async function boot(user) {
+  currentUser = user;
+  $("account-email").textContent = user.email;
+  $("account").hidden = false;
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  $("app-header").hidden = false;
+  try { await loadProjects(); } catch (e) { toast(e.message || "Could not load projects.", { tone: "error" }); }
+  render();
+}
+
+async function init() {
+  try {
+    const ui = JSON.parse(localStorage.getItem("trackerProjectsUI") || "{}");
+    if (typeof ui.showFinished === "boolean") showFinished = ui.showFinished;
+  } catch (e) {}
+  $("project-category").innerHTML = CATEGORIES.map((c) => `<option value="${c}">${c}</option>`).join("");
+  $("project-category").value = "Project";
+  setAuthMode("signin");
+
+  if (!window.supabase) {
+    document.body.innerHTML = "<p style='padding:40px;font-family:sans-serif;color:#ccc'>Could not load the Supabase library. Check your connection and reload.</p>";
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session && session.user) { if (!currentUser) boot(session.user); }
+    else {
+      currentUser = null; projects = [];
+      $("account").hidden = true;
+      $("gate").hidden = false; $("app").hidden = true; $("app-header").hidden = true;
+    }
+  });
+
+  const { data } = await sb.auth.getSession();
+  if (data.session && data.session.user) await boot(data.session.user);
+  else $("gate").hidden = false;
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();
+</script>
+</body>
+</html>

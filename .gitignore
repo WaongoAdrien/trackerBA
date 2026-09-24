@@ -1,0 +1,4 @@
+.DS_Store
+
+# Work documents live in the app's storage bucket, not in the repo
+*.pdf
