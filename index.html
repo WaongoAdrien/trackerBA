@@ -227,7 +227,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
 // Match this to the limit set in Supabase > Storage > Settings.
 const MAX_UPLOAD_MB = 50;
 
-const BUILD = "2026-09-24a";   // shown in the footer; quote this when reporting a problem
+const BUILD = "2026-09-24b";   // shown in the footer; quote this when reporting a problem
 const BUCKET = "task-files";
 
 // Supabase's resumable endpoint requires exactly 6MB chunks. Anything at or
@@ -949,7 +949,7 @@ function renderGroup(type) {
 }
 
 function renderSummary() {
-  const open = [...getTasks("active"), ...getTasks("initiated"), ...getTasks("testing")];
+  const open = TYPES.filter((t) => t !== "completed").flatMap(getTasks);
   const overdue = open.filter((t) => { const d = daysUntil(t.dueDate); return d !== null && d < 0; }).length;
   const today = open.filter((t) => daysUntil(t.dueDate) === 0).length;
   const doneCount = mode === "cloud" ? archiveTotal : getTasks("completed").length;
@@ -1576,8 +1576,10 @@ function renderBackupStatus() {
     stampEl.textContent = `build ${BUILD} · ${mode}${mode === "cloud" ? ` · files up to ${MAX_UPLOAD_MB}MB` : ""}`;
   }
   const el = $("backup-status");
+  // Every open stage plus the archive. Summed over TYPES rather than named
+  // one by one, so adding another stage cannot quietly undercount again.
   const total = mode === "cloud"
-    ? getTasks("active").length + getTasks("initiated").length + archiveTotal
+    ? TYPES.filter((t) => t !== "completed").reduce((n, t) => n + getTasks(t).length, 0) + archiveTotal
     : allTasks().length;
 
   if (mode === "cloud") {
@@ -1643,8 +1645,7 @@ function restoreBackup(text) {
 
   const incomingCount = TYPES.reduce((n, k) => n + group(k).length, 0);
   const currentCount = mode === "cloud"
-    ? getTasks("active").length + getTasks("initiated").length
-      + getTasks("testing").length + archiveTotal
+    ? TYPES.filter((t) => t !== "completed").reduce((n, t) => n + getTasks(t).length, 0) + archiveTotal
     : allTasks().length;
 
   const apply = async () => {
