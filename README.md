@@ -13,7 +13,7 @@ so every row and every uploaded file is scoped to the signed-in user.
 | --- | --- | --- |
 | Tasks | `index.html` | Day-to-day tasks through Backlog, In progress, In testing and Completed |
 | Book | `guides.html` | How-tos worth remembering, with screenshots |
-| Projects | `projects.html` | Larger pieces of work broken into ordered steps with due dates |
+| Projects | `projects.html` | Larger pieces of work broken into ordered steps, with notes and attached documents |
 | Processes | `processes.html` | The scheduled-job catalogue, searchable by name, navigation path or attribute |
 | Docs & Notes | `documents.html` | Files and standalone notes, grouped as Issue Resolution, Procedure or Notes |
 

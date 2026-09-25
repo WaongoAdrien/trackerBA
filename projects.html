@@ -6,12 +6,13 @@
 <meta http-equiv="cache-control" content="no-cache, must-revalidate">
 <meta http-equiv="pragma" content="no-cache">
 <title>Projects</title>
-<link rel="stylesheet" href="styles.css?v=57">
+<link rel="stylesheet" href="styles.css?v=58">
 <script src="theme.js?v=1"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
 </head>
 <body>
 
@@ -94,6 +95,14 @@
   </footer>
 </main>
 
+<div class="modal" id="image-modal" hidden>
+  <div class="lightbox">
+    <button type="button" class="icon-btn lightbox-close" data-close="image-modal" aria-label="Close">✕</button>
+    <img id="lightbox-img" alt="">
+    <p class="lightbox-name" id="lightbox-name"></p>
+  </div>
+</div>
+
 <div class="modal" id="confirm-modal" hidden>
   <div class="modal-box narrow">
     <div class="modal-head">
@@ -108,6 +117,8 @@
   </div>
 </div>
 
+<input type="file" id="project-file-input" multiple hidden>
+
 <div class="toasts" id="toasts"></div>
 
 <script>
@@ -116,8 +127,13 @@
 ================================================================== */
 const SUPABASE_URL      = "https://hfmlmhegypwlntvdguup.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_IImyu5TV1PUS-laZQK61RQ_dfsnO-43";
-const BUILD = "2026-09-23c";
+const BUILD = "2026-09-24a";
 const CATEGORIES = ["CRM", "CR", "Query", "Migration", "Project", "Issue", "Task", "By Karen", "Other"];
+
+// Same private bucket the tasks, playbook and processes pages use
+const BUCKET = "task-files";
+const MAX_UPLOAD_MB = 50;
+const RESUMABLE_THRESHOLD = 6 * 1024 * 1024;   // Supabase resumable chunk size
 
 let sb = null, currentUser = null;
 let projects = [];
@@ -127,6 +143,8 @@ let openIds = new Set();          // projects showing their steps
 let openNotes = new Set();        // project or step ids showing their note
 let editingNote = null;           // { kind: "project" | "step", id }
 let confirmAction = null;
+let attachTarget = null;          // project the file picker is filling
+const thumbCache = new Map();     // file id -> signed url, so a thumbnail is signed once
 
 const $ = (id) => document.getElementById(id);
 
@@ -230,6 +248,27 @@ function renderMarkdown(src) {
   closeBlocks();
   return html;
 }
+
+function fileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
+  return `${(n / 1073741824).toFixed(2)} GB`;
+}
+
+const isImage = (f) => /^image\//.test(f.mime_type || "");
+
+function kindLabel(f) {
+  const name = (f.file_name || "").toLowerCase();
+  const ext = name.includes(".") ? name.split(".").pop() : "";
+  const known = { pdf:"PDF", doc:"DOC", docx:"DOC", xls:"XLS", xlsx:"XLS", csv:"CSV",
+    ppt:"PPT", pptx:"PPT", txt:"TXT", zip:"ZIP", msg:"MSG", eml:"EML",
+    png:"PNG", jpg:"JPG", jpeg:"JPG", gif:"GIF", webp:"WEBP", mp4:"MP4" };
+  return known[ext] || (ext ? ext.slice(0, 4).toUpperCase() : "FILE");
+}
+
+const files = (p) => p.files || [];
 
 const hasNote = (x) => !!(x && x.notes && x.notes.trim());
 
@@ -346,8 +385,20 @@ async function loadProjects() {
     const byProject = {};
     (rows || []).forEach((s) => { (byProject[s.project_id] = byProject[s.project_id] || []).push(s); });
     projects.forEach((p) => { p.steps = byProject[p.id] || []; });
+
+    // Attachments. A missing table is not fatal - the rest of the page works
+    // until supabase-project-files.sql has been run.
+    const { data: fileRows, error: fileError } = await sb.from("project_files")
+      .select("*").in("project_id", ids).order("uploaded_at");
+    if (fileError) {
+      console.warn("Project files unavailable:", fileError.message);
+    } else {
+      const filesByProject = {};
+      (fileRows || []).forEach((f) => { (filesByProject[f.project_id] = filesByProject[f.project_id] || []).push(f); });
+      projects.forEach((p) => { p.files = filesByProject[p.id] || []; });
+    }
   }
-  projects.forEach((p) => { p.steps = p.steps || []; });
+  projects.forEach((p) => { p.steps = p.steps || []; p.files = p.files || []; });
 }
 
 function matchesSearch(p) {
@@ -450,6 +501,7 @@ function buildCard(p, term) {
         <span class="project-name">${highlight(p.name, term)}</span>
       </button>
       ${hasNote(p) ? `<span class="note-marker" title="This project has a note">✎</span>` : ""}
+      ${files(p).length ? `<span class="guide-badge" title="${files(p).length} document(s)">📎 ${files(p).length}</span>` : ""}
       <span class="chip">${escapeHtml(p.category)}</span>
       <span class="project-target due-${dueTone(p.due_date)}">
         <span class="date-label">Target</span>${p.due_date ? escapeHtml(formatStamp(p.due_date)) : "—"}
@@ -487,6 +539,27 @@ function buildCard(p, term) {
         <input type="date" class="step-date" aria-label="Step due date">
         <button type="submit" class="btn-ghost small">Add step</button>
       </form>
+      <div class="project-docs">
+        <div class="project-docs-head">
+          <span class="project-docs-label">Documents${files(p).length ? ` <span class="count">${files(p).length}</span>` : ""}</span>
+          <button type="button" class="btn-ghost small" data-act="attach">Attach a file</button>
+        </div>
+        ${files(p).length ? `
+          <ul class="project-file-list">
+            ${files(p).map((f) => `
+              <li class="project-file">
+                <button type="button" class="project-file-open" data-open="${f.id}" title="${escapeHtml(f.file_name)}">
+                  <span class="file-badge">${isImage(f) ? `<img alt="" loading="lazy" data-thumb="${f.id}">` : escapeHtml(kindLabel(f))}</span>
+                  <span class="project-file-name">${escapeHtml(f.file_name)}</span>
+                </button>
+                <span class="project-file-size">${escapeHtml(fileSize(f.file_size))}</span>
+                <button type="button" class="btn-ghost small" data-save="${f.id}">Save</button>
+                <button type="button" class="icon-btn" data-drop-file="${f.id}" aria-label="Remove document">✕</button>
+              </li>`).join("")}
+          </ul>`
+        : `<p class="muted-note">Nothing attached yet — up to ${MAX_UPLOAD_MB} MB per file.</p>`}
+      </div>
+
       <div class="project-foot">
         ${p.status === "done"
           ? `<button type="button" class="btn-ghost small" data-act="reopen">Reopen project</button>`
@@ -539,6 +612,8 @@ function render() {
   $("status-line").textContent = projects.length
     ? `${projects.length} project${projects.length === 1 ? "" : "s"}` : "";
   $("build-stamp").textContent = `build ${BUILD}`;
+
+  loadThumbs();
 }
 
 /* ==================================================================
@@ -551,6 +626,18 @@ document.addEventListener("click", async (e) => {
   if (!card) return;
   const p = findProject(card.dataset.id);
   if (!p) return;
+
+  // The document buttons carry their own attributes rather than data-act,
+  // so they are read before the data-act switch below.
+  const openBtn = e.target.closest("[data-open]");
+  if (openBtn) return openFile(p, openBtn.dataset.open);
+
+  const saveBtn = e.target.closest("[data-save]");
+  if (saveBtn) return saveFile(p, saveBtn.dataset.save);
+
+  const dropBtn = e.target.closest("[data-drop-file]");
+  if (dropBtn) return removeFile(p, dropBtn.dataset.dropFile);
+
   const act = e.target.closest("[data-act]");
   if (!act) return;
   const stepEl = e.target.closest(".step");
@@ -636,15 +723,27 @@ document.addEventListener("click", async (e) => {
       break;
     }
 
-    case "remove":
+    case "remove": {
+      const docCount = files(p).length;
       askConfirm("Delete project",
-        `"${p.name}" and its ${steps(p).length} step(s) will be permanently deleted.`,
+        `"${p.name}", its ${steps(p).length} step(s)` +
+        (docCount ? ` and ${docCount} document${docCount === 1 ? "" : "s"}` : "") +
+        " will be permanently deleted.",
         async () => {
+          const paths = files(p).map((f) => f.file_path);
           projects = projects.filter((x) => x.id !== p.id);
           render();
+          // The rows cascade with the project; the stored files do not.
+          if (paths.length) await sb.storage.from(BUCKET).remove(paths);
           const { error } = await sb.from("projects").delete().eq("id", p.id);
           if (error) toast("Could not delete the project.", { tone: "error" });
         }, "Delete");
+      break;
+    }
+
+    case "attach":
+      attachTarget = p.id;
+      $("project-file-input").click();
       break;
 
     case "edit":
@@ -798,6 +897,152 @@ $("search-input").addEventListener("input", (e) => {
   const v = e.target.value;
   searchTimer = setTimeout(() => { search = v; render(); }, 150);
 });
+/* ==================================================================
+   Documents
+   Files live in the same private bucket as the rest of the app, under
+   <user>/projects/<project>/, so the storage policies already cover them.
+================================================================== */
+async function signedUrl(f, forDownload) {
+  const { data, error } = await sb.storage.from(BUCKET)
+    .createSignedUrl(f.file_path, 3600, forDownload ? { download: f.file_name } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+async function uploadOne(projectId, file) {
+  const path = `${currentUser.id}/projects/${projectId}/${uuid()}-${file.name}`;
+
+  // Anything past the chunk size has to go up resumably, which is a
+  // Supabase requirement rather than a choice.
+  if (file.size >= RESUMABLE_THRESHOLD && window.tus) {
+    const { data } = await sb.auth.getSession();
+    const token = data.session.access_token;
+    await new Promise((resolve, reject) => {
+      new window.tus.Upload(file, {
+        endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+        headers: { authorization: `Bearer ${token}`, "x-upsert": "false" },
+        uploadDataDuringCreation: true, chunkSize: RESUMABLE_THRESHOLD,
+        metadata: { bucketName: BUCKET, objectName: path, contentType: file.type || "application/octet-stream" },
+        onError: reject, onSuccess: resolve
+      }).start();
+    });
+  } else {
+    const { error } = await sb.storage.from(BUCKET)
+      .upload(path, file, { contentType: file.type || "application/octet-stream" });
+    if (error) throw error;
+  }
+
+  const row = { project_id: projectId, user_id: currentUser.id, file_name: file.name,
+                file_path: path, file_size: file.size, mime_type: file.type || null };
+  const { data, error } = await sb.from("project_files").insert(row).select().single();
+  // Do not leave an orphan in storage if the row will not insert
+  if (error) { await sb.storage.from(BUCKET).remove([path]); throw error; }
+  return data;
+}
+
+async function attachToProject(projectId, fileList) {
+  const p = findProject(projectId);
+  if (!p) return;
+
+  for (const file of fileList) {
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      toast(`"${file.name}" is ${fileSize(file.size)} — over the ${MAX_UPLOAD_MB} MB limit.`,
+        { tone: "error", duration: 10000 });
+      continue;
+    }
+    if (files(p).some((f) => f.file_name.toLowerCase() === file.name.toLowerCase())) {
+      toast(`"${file.name}" is already attached to this project.`, { tone: "warn", duration: 8000 });
+      continue;
+    }
+    const pending = toast(`Uploading ${file.name}…`, { duration: 120000 });
+    try {
+      const att = await uploadOne(projectId, file);
+      p.files = files(p).concat(att);
+      pending.remove();
+      openIds.add(projectId);        // so the new document is on screen
+      render();
+      toast(`${file.name} attached.`, { tone: "success" });
+    } catch (error) {
+      pending.remove();
+      console.error("Upload failed", file.name, error);
+      const missingTable = error.code === "PGRST205" || /could not find the table|does not exist/i.test(error.message || "");
+      toast(missingTable
+        ? "Run supabase-project-files.sql in the Supabase SQL Editor first."
+        : `${file.name} failed. ${error.message || ""}`.trim(),
+        { tone: "error", duration: 10000 });
+    }
+  }
+}
+
+async function openFile(p, id) {
+  const f = files(p).find((x) => x.id === id);
+  if (!f) return;
+  if (isImage(f)) {
+    try {
+      const url = thumbCache.get(f.id) || await signedUrl(f, false);
+      $("lightbox-img").src = url;
+      $("lightbox-name").textContent = f.file_name;
+      openModal("image-modal");
+    } catch (e) { toast("Could not open that image.", { tone: "error" }); }
+    return;
+  }
+  // Opened before the URL is signed, or the browser treats it as a popup
+  const tab = window.open("", "_blank");
+  try { const url = await signedUrl(f, false); if (tab) tab.location.href = url; }
+  catch (e) { if (tab) tab.close(); toast("Could not open that file.", { tone: "error" }); }
+}
+
+async function saveFile(p, id) {
+  const f = files(p).find((x) => x.id === id);
+  if (!f) return;
+  try {
+    const url = await signedUrl(f, true);
+    const a = document.createElement("a");
+    a.href = url; a.download = f.file_name;
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { toast("Could not save that file.", { tone: "error" }); }
+}
+
+function removeFile(p, id) {
+  const f = files(p).find((x) => x.id === id);
+  if (!f) return;
+  askConfirm("Remove document", `"${f.file_name}" will be permanently deleted.`, async () => {
+    try {
+      await sb.storage.from(BUCKET).remove([f.file_path]);
+      const { error } = await sb.from("project_files").delete().eq("id", f.id);
+      if (error) throw error;
+      p.files = files(p).filter((x) => x.id !== f.id);
+      thumbCache.delete(f.id);
+      render();
+      toast("Document removed.");
+    } catch (e) { toast("Could not remove that document.", { tone: "error" }); }
+  }, "Delete");
+}
+
+async function loadThumbs() {
+  for (const p of projects) {
+    for (const f of files(p).filter(isImage)) {
+      const img = document.querySelector(`[data-thumb="${f.id}"]`);
+      if (!img || img.dataset.loaded) continue;
+      img.dataset.loaded = "1";
+      try {
+        if (!thumbCache.has(f.id)) thumbCache.set(f.id, await signedUrl(f, false));
+        img.src = thumbCache.get(f.id);
+      } catch (e) { /* a missing thumbnail should not break the card */ }
+    }
+  }
+}
+
+$("project-file-input").addEventListener("change", (e) => {
+  // Copy the list before clearing the input - clearing it empties the live
+  // FileList and the upload would silently do nothing.
+  const picked = Array.from(e.target.files || []);
+  e.target.value = "";
+  const id = attachTarget;
+  attachTarget = null;
+  if (picked.length && id) attachToProject(id, picked);
+});
+
 $("finished-toggle").addEventListener("click", () => {
   showFinished = !showFinished;
   try { localStorage.setItem("trackerProjectsUI", JSON.stringify({ showFinished })); } catch (e) {}
